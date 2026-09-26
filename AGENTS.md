@@ -16,8 +16,11 @@ developed before it was extracted.
 
 ## Checks
 
+`ci/check.sh` is the merge gate, run by CI as-is: `npm ci`, lint, build, test.
 `npm run lint` runs `tsc`, ESLint, `scripts/check-explicit-any.ts` and
 `scripts/check-boundary.ts`; `npm test` runs vitest; `npm run build` emits `dist/`.
+Gate files (`ci/`, `.github/`, lint/tsconfig/vitest config, the check scripts) have
+CODEOWNERS: don't loosen them to get a change through.
 The boundary guard fails if anything under `src/`, `test/` or `scripts/` imports from
 outside the package (static, dynamic `import()`, `require()` or `vi.mock` paths) other
 than Node builtins and its short third-party allowlist. Widening that allowlist, or the
