@@ -1,0 +1,69 @@
+{
+    "name": "@agent-dev-harness/agent-core",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Copilot SDK session core: SessionWrapper, tool-call enforcement, audit sessions, provider registry, and the Docker/native workspace runners.",
+    "license": "MIT",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./workspace": {
+            "types": "./dist/workspace/index.d.ts",
+            "default": "./dist/workspace/index.js"
+        },
+        "./proxy": {
+            "types": "./dist/proxy/index.d.ts",
+            "default": "./dist/proxy/index.js"
+        },
+        "./types": {
+            "types": "./dist/types.d.ts",
+            "default": "./dist/types.js"
+        },
+        "./testing": {
+            "types": "./dist/testing.d.ts",
+            "default": "./dist/testing.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "engines": {
+        "node": ">=22.12"
+    },
+    "scripts": {
+        "build": "node build.mjs",
+        "prepare": "npm run build",
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "lint": "tsc --noEmit -p tsconfig.json && eslint . && tsx scripts/check-explicit-any.ts && tsx scripts/check-boundary.ts",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@github/copilot-sdk": "^1.0.13"
+    },
+    "peerDependencies": {
+        "express": "^4.22.3"
+    },
+    "peerDependenciesMeta": {
+        "express": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@github/copilot": "^1.0.83",
+        "@types/express": "^4.17.25",
+        "@types/node": "^22.20.2",
+        "@typescript-eslint/eslint-plugin": "^8.70.0",
+        "@typescript-eslint/parser": "^8.70.0",
+        "esbuild": "^0.25.12",
+        "eslint": "^10.10.0",
+        "express": "^4.22.3",
+        "tsx": "^4.23.13",
+        "typescript": "^5.9.3",
+        "vite": "^6.4.3",
+        "vitest": "^5.0.1",
+        "yaml": "^2.9.1"
+    }
+}

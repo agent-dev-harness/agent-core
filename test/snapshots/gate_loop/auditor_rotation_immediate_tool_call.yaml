@@ -1,0 +1,17 @@
+models:
+  - gemini-3.1-flash-lite
+  - gemini-3.5-flash
+conversations:
+  - messages:
+      - role: system
+        content: ${system}
+      - role: user
+        content: ${user}
+      - role: assistant
+        content: Investigating the change before reporting.
+        tool_calls:
+          - id: aud_call_0
+            type: function
+            function:
+              name: submit_finding
+              arguments: '{"pass":true}'

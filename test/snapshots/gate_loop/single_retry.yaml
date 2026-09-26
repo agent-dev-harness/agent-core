@@ -1,0 +1,34 @@
+models:
+  - claude-sonnet-4.5
+conversations:
+  - messages:
+      - role: system
+        content: ${system}
+      - role: user
+        content: Run the gate check.
+      - role: assistant
+        tool_calls:
+          - id: toolcall_0
+            type: function
+            function:
+              name: run_tests
+              arguments: '{"target":"tests","flags":[]}'
+  - messages:
+      - role: system
+        content: ${system}
+      - role: user
+        content: Run the gate check.
+      - role: assistant
+        tool_calls:
+          - id: toolcall_0
+            type: function
+            function:
+              name: run_tests
+              arguments: '{"target":"tests","flags":[]}'
+      - role: tool
+        tool_call_id: toolcall_0
+        content: |-
+          FAIL: 2 tests failed
+          gate: failed
+      - role: assistant
+        content: The gate failed. 2 tests need fixing.
