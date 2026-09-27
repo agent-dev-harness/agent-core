@@ -1,0 +1,76 @@
+# @agent-dev-harness/agent-core
+
+The session core behind copilot-ui's agents: `SessionWrapper` (the only way to create or
+resume a Copilot SDK session), forced tool-call turns with a hard timeout, audit sessions,
+the multi-provider registry and HTTP proxy, and the Docker/native workspace runners with
+a `GitSandbox`.
+
+Extracted from copilot-ui (issue chrislyclau/copilot-ui#485). See `AGENTS.md` for design
+notes and `docs/` for requirements.
+
+## Requirements
+
+- Node.js 22.12 or later. The package is ESM; CommonJS consumers load it with `require()`.
+- The GitHub Copilot CLI (`@github/copilot`), which `@github/copilot-sdk` launches to run
+  sessions.
+- For Docker mode, a running container reachable as `CONTAINER_NAME` with the workspace
+  bind-mounted at the same absolute path as on the host (see `WORKSPACE_HOST_LOCATION`).
+
+## Entrypoints
+
+| Import | Contents |
+|---|---|
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`, `FORCED_TOOL_TURN_HARD_TIMEOUT_MS`; `executeAuditSession`, `makeAuditorExecToolHandler`, `ToolDefinition`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
+| `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `setActiveOpenRouterSessionId` (needs `express`, an optional peer dependency) |
+| `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
+| `@agent-dev-harness/agent-core/testing` | `nativeRunner`, for test harnesses that drive the native runner directly |
+
+Call `initializeWorkspace()` once at startup before using the workspace functions or
+`executeAuditSession`. To subclass `GitSandbox` (for example, to add branch-per-task
+operations), pass `initializeWorkspace({ createSandbox })`.
+
+## Environment variables
+
+The package reads these at runtime. Everything else, including model and role
+configuration, is passed in by the caller.
+
+| Variable | Read by | Effect |
+|---|---|---|
+| `AI_STUDIO` | workspace runner selection | `true` selects the native runner instead of Docker. |
+| `NODE_ENV` | runner selection, native runner | `test` selects the native runner and passes the full environment to spawned commands (otherwise only a fixed `PATH`). |
+| `VITEST` | runner selection, native runner, provider registry | `true` behaves like `NODE_ENV=test`; when `COPILOT_API_URL` is also set, the registry routes every provider through it (otherwise only `openai`). |
+| `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
+| `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required in Docker mode. |
+| `COPILOT_API_URL` | provider registry | Base URL of the provider proxy. When unset, providers route to `http://localhost:$PORT`. |
+| `PORT` | provider registry | Port of the local provider proxy used when `COPILOT_API_URL` is unset (default `3000`). |
+| `OPENAI_API_KEY` | provider registry | Key for the `openai` provider (falls back to the key passed to `ProviderRegistry`). |
+| `ANTHROPIC_API_KEY` | provider registry | Key for the `anthropic` provider (same fallback). |
+| `OPENROUTER_API_KEY` | provider registry, proxy | Key for the `openrouter` provider (same fallback in the registry); the proxy uses it to call OpenRouter. |
+| `OPENROUTER_BASE_URL` | provider registry | Overrides the OpenRouter base URL. |
+| `LOCAL_PROVIDER_URL` | provider registry | Base URL of a local OpenAI-compatible server (default `http://127.0.0.1:11434/v1/`). |
+| `LOCAL_PROVIDER_API_KEY` | provider registry | Key for the local provider (default `ollama`). |
+
+The Gemini provider takes its key only from the `ProviderRegistry` constructor; the
+package does not read `GEMINI_API_KEY` itself.
+
+## Known limitations
+
+- The proxy keeps the active OpenRouter session id in module-level state
+  (`setActiveOpenRouterSessionId`), so it is only correct for one session at a time per
+  process.
+- `AI_STUDIO`, `NODE_ENV` and `VITEST` select the runner inside production code.
+
+## Development
+
+```bash
+npm install        # also builds dist/ via the prepare script
+npm run lint       # tsc, ESLint, check-explicit-any, boundary guard
+npm test           # vitest, one file at a time
+npm run build      # dist/: ESM bundles plus .d.ts
+```
+
+Integration tests replay recorded model traffic through `test/harness/CapiProxy.ts`
+(see `docs/copilot-sdk-record-replay.md`). No test needs Docker or network access: the
+Docker runner tests mock `child_process`. The check against a real container lives in
+copilot-ui (`scripts/verify-run-terminal-docker.ts`).
