@@ -78,7 +78,7 @@ describe('buildAuditorSessionSettings default toolset (issue #299)', () => {
     // or DEFAULT_TIMEOUT_SECONDS * 1000 when timeoutSeconds is omitted) so
     // the tool boundary's deadline composes with whatever signal the
     // handler passes, instead of being silently dropped. See PR #465
-    // review + AGENTS.md's "run_terminal_docker" section.
+    // review + KNOWLEDGE.md's "run_terminal_docker" section.
     expect(mockExecCommand).toHaveBeenCalledWith('echo hi', undefined, {
       workDir: MOCK_WORKSPACE_ROOT,
       timeoutMs: 60_000,

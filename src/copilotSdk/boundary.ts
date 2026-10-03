@@ -83,7 +83,7 @@ export class CopilotClient extends BaseCopilotClient {
    * systemMessage-drop-on-resume hazard -- resumeSession does not inherit
    * systemMessage from the session being resumed, so any caller building a
    * resumeConfig must explicitly re-pass systemMessage or silently lose it.
-   * See AGENTS.md ("resumeSession() drops the system prompt unless you
+   * See KNOWLEDGE.md ("resumeSession() drops the system prompt unless you
    * re-pass it") for the general rule and issue #208 for the original bug.
    */
   override async resumeSession(

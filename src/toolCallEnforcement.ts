@@ -69,7 +69,7 @@ function isStallError(err: unknown): err is StallError {
 }
 
 /**
- * Execution-aware silence tracking (see AGENTS.md: "Execution-aware silence
+ * Execution-aware silence tracking (see KNOWLEDGE.md: "Execution-aware silence
  * tracking" and the "Stall-watchdog recovery retired..." entry it's
  * cross-referenced from).
  *
@@ -526,7 +526,7 @@ export type ForcedToolTurnUntilTimeoutOptions<T> = Omit<
  *
  * `runForcedToolTurn`, `sendAndWaitWithAbort`, `STALL_TIMEOUT_MS`,
  * `isStallError`, and their existing tests are left in place, dormant, not
- * deleted -- see AGENTS.md.
+ * deleted -- see KNOWLEDGE.md.
  */
 export async function runForcedToolTurnUntilTimeout<T>(
   wrapper: SessionWrapper,

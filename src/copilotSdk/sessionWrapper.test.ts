@@ -291,7 +291,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     // auto-approve-everything handler and defeat SYS-REQ-028d entirely.
     expect(resumeConfig?.autoApproveAll).toBe(false);
     // systemMessage IS resent on resume: `resumeSession` does not inherit it
-    // from the session being resumed (AGENTS.md, "resumeSession() drops the
+    // from the session being resumed (KNOWLEDGE.md, "resumeSession() drops the
     // system prompt unless you re-pass it"; boundary.ts docstring on
     // `CopilotClient.resumeSession`; issue #208). Omitting it here would
     // silently fall back to the SDK's default system prompt for the rest of
@@ -337,7 +337,7 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
     expect(createCalls[0]?.systemMessage?.mode).toBe('customize');
     expect(createCalls[0]?.systemMessage?.content).toContain('you are an auditor');
     // `resumeSession` does not inherit `systemMessage` from the session
-    // being resumed (issue #208 / AGENTS.md) -- it falls into the same
+    // being resumed (issue #208 / KNOWLEDGE.md) -- it falls into the same
     // "SDK requires it re-sent" carve-out as `tools`/`availableTools`, so it
     // must be resent here byte-identical to what creation sent, frozen for
     // the session's life (SYS-REQ-028l).
