@@ -42,7 +42,7 @@
         "verify:docker": "tsx test/scripts/verify-docker-runner.ts"
     },
     "dependencies": {
-        "@github/copilot-sdk": "^1.0.13"
+        "@github/copilot-sdk": "1.0.13"
     },
     "peerDependencies": {
         "express": "^4.22.3"
