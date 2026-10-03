@@ -46,6 +46,9 @@ npm builds `dist/` during the install (the `prepare` script), which takes about 
 No SSH key or token is needed. To upgrade, change the tag. `@github/copilot-sdk` comes in
 through a `^` range, so a consumer can get a newer SDK than this repo's tests ran against.
 
+To release, bump `version` in `package.json` in a PR. When it merges, CI runs the merge
+gate on `main` and tags that commit `v<version>`.
+
 ## Entrypoints
 
 | Import | Contents |
