@@ -18,7 +18,7 @@ if command -v dockerd >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
   done
 fi
 
-image="${VERIFY_DOCKER_IMAGE:-debian:bookworm-slim}"
+image="${VERIFY_DOCKER_IMAGE:-buildpack-deps:bookworm-scm}"
 if docker info >/dev/null 2>&1; then
   docker image inspect "$image" >/dev/null 2>&1 \
     || docker pull --quiet "$image" >/dev/null \

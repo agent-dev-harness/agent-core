@@ -6,7 +6,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const IMAGE = process.env.VERIFY_DOCKER_IMAGE ?? 'debian:bookworm-slim';
+// Needs bash and git.
+const IMAGE = process.env.VERIFY_DOCKER_IMAGE ?? 'buildpack-deps:bookworm-scm';
 
 function docker(...args: string[]): string {
   const result = spawnSync('docker', args, { encoding: 'utf8' });
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
     process.env.WORKSPACE_HOST_LOCATION = workspace;
 
     const { execCommand } = await import('../../src/workspace/dockerRunner');
-    const { getExecCommand } = await import('../../src/workspace');
+    const { getExecCommand, initializeWorkspace, getGitSandbox } = await import('../../src/workspace');
     const { makeRunTerminalDockerHandler } = await import('../../src/execTool');
 
     check('getExecCommand selects the Docker runner by default', getExecCommand() === execCommand, null);
@@ -142,6 +143,42 @@ async function main(): Promise<void> {
       'abort kills the whole process tree in the container',
       processesRunning(containerName, 'sleep 32') === '' && processesRunning(containerName, 'sleep 33') === '',
       null,
+    );
+
+    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');
+    await initializeWorkspace();
+    const sandbox = getGitSandbox();
+    const baseline = await sandbox.getHeadShaAsync();
+    check('initializeWorkspace creates the repo with a baseline commit, inside the container', /^[0-9a-f]{40}$/.test(baseline), baseline);
+    check('keeps the git dir under snapshots/ in the workspace', fs.existsSync(path.join(workspace, 'snapshots', '.git', 'HEAD')), null);
+
+    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'changed\n');
+    const diff = await sandbox.getGitDiffHead();
+    check('getGitDiffHead shows a host-side edit', diff.includes('-baseline') && diff.includes('+changed'), diff);
+    check('the snapshots dir never shows up in a diff', !diff.includes('snapshots/'), diff);
+
+    const changed = await sandbox.commitAllChangesAsync('change notes');
+    check('commitAllChangesAsync returns the new HEAD', changed !== baseline && changed === (await sandbox.getHeadShaAsync()), changed);
+
+    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'dirty\n');
+    const dirtyRestore = await sandbox.restoreCheckpointAsync(baseline, 'restore').then(() => 'resolved', (e: Error) => e.message);
+    check('refuses to restore a checkpoint over uncommitted changes', /uncommitted changes/.test(dirtyRestore), dirtyRestore);
+
+    await sandbox.commitAllChangesAsync('dirty notes');
+    fs.writeFileSync(path.join(workspace, 'extra.txt'), 'extra\n');
+    await sandbox.commitAllChangesAsync('add extra');
+    await sandbox.restoreCheckpointAsync(baseline, 'restore baseline');
+    check(
+      'restoreCheckpointAsync puts the files back as they were at the checkpoint',
+      fs.readFileSync(path.join(workspace, 'notes.txt'), 'utf8') === 'baseline\n' && !fs.existsSync(path.join(workspace, 'extra.txt')),
+      { notes: fs.readFileSync(path.join(workspace, 'notes.txt'), 'utf8'), extra: fs.existsSync(path.join(workspace, 'extra.txt')) },
+    );
+
+    const overlapping = await Promise.allSettled([sandbox.getHeadShaAsync(), sandbox.getHeadShaAsync()]);
+    check(
+      'refuses overlapping git operations',
+      overlapping[0].status === 'fulfilled' && overlapping[1].status === 'rejected' && /busy/.test(String(overlapping[1].reason)),
+      overlapping,
     );
   } finally {
     spawnSync('docker', ['rm', '-f', containerName]);
