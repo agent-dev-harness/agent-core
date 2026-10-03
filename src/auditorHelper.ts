@@ -176,7 +176,7 @@ export function buildAuditorSessionSettings(
     // dropped -- nothing consumed it after that migration. See issue #208:
     // resumeSession()'s `resumeConfig` (toolCallEnforcement.ts) must carry
     // the system prompt across a resume -- a general SDK hazard, not
-    // specific to this session -- see AGENTS.md ("resumeSession() drops the
+    // specific to this session -- see KNOWLEDGE.md ("resumeSession() drops the
     // system prompt unless you re-pass it") for the rule any future
     // resumeSession() caller (e.g. run-issue-task.ts) must follow.
     systemMessage: {

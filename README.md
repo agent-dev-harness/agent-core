@@ -5,7 +5,7 @@ resume a Copilot SDK session), forced tool-call turns with a hard timeout, audit
 the multi-provider registry and HTTP proxy, and the Docker/native workspace runners with
 a `GitSandbox`.
 
-Extracted from copilot-ui (issue chrislyclau/copilot-ui#485). See `AGENTS.md` for design
+Extracted from copilot-ui (issue chrislyclau/copilot-ui#485). See `KNOWLEDGE.md` for design
 notes and `docs/` for requirements.
 
 ## Requirements

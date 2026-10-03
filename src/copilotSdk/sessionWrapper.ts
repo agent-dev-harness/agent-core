@@ -664,7 +664,7 @@ export class SessionWrapper {
       // 028d-1 (the wire-level set is unchanged, just re-declared).
       //
       // `systemMessage` falls into that same carve-out, for a different
-      // reason (issue #208, see AGENTS.md "resumeSession() drops the system
+      // reason (issue #208, see KNOWLEDGE.md "resumeSession() drops the system
       // prompt unless you re-pass it", and the docstring on
       // `CopilotClient.resumeSession` in boundary.ts): `resumeSession` does
       // NOT inherit `systemMessage` from the session being resumed -- the

@@ -1,8 +1,8 @@
-# agent-core — notes for agents
+# agent-core — background notes
 
-Tribal knowledge for this package: non-obvious patterns and past debugging lessons.
-Add here when a fix took several attempts, a bug touched files you wouldn't have
-guessed, or something worked differently than expected. Keep it high-signal.
+Non-obvious patterns and past debugging lessons, written by agents during development
+and not reviewed. Parts may be out of date: check a claim against the code before
+relying on it. The reviewed instructions are in `AGENTS.md`.
 
 Issue and PR numbers (#NNN) refer to chrislyclau/copilot-ui, where this code was
 developed before it was extracted.
