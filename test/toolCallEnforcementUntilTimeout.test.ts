@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runForcedToolTurnUntilTimeout } from '../src/toolCallEnforcement';
 import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 
@@ -268,5 +268,79 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(mockClient.forceStop).not.toHaveBeenCalled();
     expect(mockClient.deleteSession).not.toHaveBeenCalled();
     expect(mockClient.resumeSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('runForcedToolTurnUntilTimeout diagnostic logging', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  async function runTurnEmitting(events: unknown[]): Promise<void> {
+    const handlers: Array<(e: unknown) => void> = [];
+    const session = {
+      sessionId: 's-logging',
+      on: vi.fn().mockImplementation((handler) => {
+        handlers.push(handler);
+        return vi.fn();
+      }),
+      sendAndWait: vi.fn().mockImplementation(() => {
+        for (const event of [...events, { type: 'tool.execution_start', data: { toolName: 'my_tool' } }]) {
+          handlers.forEach((h) => h(event));
+        }
+        return Promise.resolve();
+      }),
+    } as any;
+    const mockClient = { createSession: vi.fn().mockResolvedValue(session), resumeSession: vi.fn() } as any;
+    await runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'hi', { getResult: () => null });
+  }
+
+  it('logs each tool.execution_start event with the tool name', async () => {
+    await runTurnEmitting([
+      { type: 'tool.execution_start', data: { toolName: 'view' } },
+      { type: 'tool.execution_start', data: { toolName: 'edit' } },
+    ]);
+
+    expect(logSpy).toHaveBeenCalledWith('[runForcedToolTurnUntilTimeout] tool used: view');
+    expect(logSpy).toHaveBeenCalledWith('[runForcedToolTurnUntilTimeout] tool used: edit');
+  });
+
+  it('logs assistant.usage / session.usage_info events, capped at three', async () => {
+    const usage = Array.from({ length: 5 }, (_, i) => ({ type: 'assistant.usage', data: { tokens: i } }));
+    await runTurnEmitting([...usage, { type: 'session.usage_info', data: { tokens: 99 } }]);
+
+    const usageLogCalls = logSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('[UsageTelemetry]'));
+    expect(usageLogCalls).toHaveLength(3);
+  });
+
+  it('fails loudly (console.error) instead of logging "undefined" when tool.execution_start has no toolName', async () => {
+    await runTurnEmitting([
+      { type: 'tool.execution_start', data: {} },
+      { type: 'tool.execution_start', data: { toolName: '' } },
+    ]);
+
+    const shapeErrors = errorSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('UNEXPECTED EVENT SHAPE'));
+    expect(shapeErrors).toHaveLength(2);
+    expect(String(shapeErrors[0][0])).toContain('tool.execution_start');
+  });
+
+  it('fails loudly (console.error) when a usage-telemetry event has no usable data object', async () => {
+    await runTurnEmitting([{ type: 'assistant.usage', data: null }, { type: 'session.usage_info' }]);
+
+    expect(logSpy.mock.calls.some((c: unknown[]) => String(c[0]).includes('[UsageTelemetry]'))).toBe(false);
+    const shapeErrors = errorSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('UNEXPECTED EVENT SHAPE'));
+    expect(shapeErrors).toHaveLength(2);
   });
 });
