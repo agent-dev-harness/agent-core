@@ -6,7 +6,7 @@ Copilot SDK. It has four parts:
 | Part | What it does |
 |---|---|
 | **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
-| **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't, under one hard time limit. |
+| **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't. |
 | **Workspace** | Docker and native runners, the `run_terminal_docker` tool (working directory, timeouts, output truncation), killing the whole process group on abort, and `GitSandbox`. |
 | **Providers** | `ProviderRegistry` plus an HTTP proxy that routes models to OpenAI, Anthropic, OpenRouter, Gemini or a local server. |
 
@@ -15,7 +15,7 @@ Copilot SDK. It has four parts:
 0. **Most important requirement:** `run_terminal_docker` completely replaces the bash tool.
 1. **One way in for anything risky:** SDK imports, session creation and workspace paths each
    have one allowed route, and lint checks enforce it.
-2. **No hangs:** every turn and every command has a deadline.
+2. **No hangs:** every `run_terminal_docker` command has a deadline.
 3. **Agents stay in the workspace:** commands run in the sandbox, and paths can't reach
    outside it.
 4. **A stable prompt cache:** a resumed session sends the same tools and system prompt as
