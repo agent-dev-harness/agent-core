@@ -147,22 +147,6 @@ export class SessionWrapper {
     return this._session;
   }
 
-  static adopt(
-    session: CopilotSession,
-    client: CopilotClient,
-    toolsConfig: SessionWrapperToolsConfig,
-    baseConfig: SessionWrapperBaseConfig,
-    modelName: string,
-    frozenSystemMessage: SessionConfig['systemMessage'] | undefined,
-  ): SessionWrapper {
-    const wrapper = new SessionWrapper(client, toolsConfig, baseConfig);
-    wrapper._session = session;
-    wrapper._frozenSystemMessage = frozenSystemMessage;
-    wrapper._modelName = modelName;
-    wrapper._announcedSystemPrompt = wrapper._systemPrompt;
-    return wrapper;
-  }
-
   enableTools(...names: readonly string[]): this {
     this._setEnablement(names, true);
     return this;
