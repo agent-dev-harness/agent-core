@@ -33,6 +33,19 @@ Out of scope: model and role configuration. The caller passes these in.
 - For Docker mode, a running container reachable as `CONTAINER_NAME` with the workspace
   bind-mounted at the same absolute path as on the host (see `WORKSPACE_HOST_LOCATION`).
 
+## Installing
+
+The package isn't published to a registry. Install it from GitHub, pinned to a release tag
+or a commit:
+
+```bash
+npm install github:agent-dev-harness/agent-core#v0.1.0
+```
+
+npm builds `dist/` during the install (the `prepare` script), which takes about 40 seconds.
+No SSH key or token is needed. To upgrade, change the tag. `@github/copilot-sdk` comes in
+through a `^` range, so a consumer can get a newer SDK than this repo's tests ran against.
+
 ## Entrypoints
 
 | Import | Contents |
