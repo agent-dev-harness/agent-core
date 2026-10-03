@@ -75,7 +75,7 @@ describe('forced tool turn retry against real SDK/proxy transport', () => {
 
     const snapshotPath = path.resolve(
       process.cwd(),
-      'test/snapshots/gate_loop/audit_retry_prompt_prefix.yaml'
+      'test/snapshots/forced_tool_turn/audit_retry_prompt_prefix.yaml'
     );
     await proxy.updateConfig({ filePath: snapshotPath, workDir: tmpWorkDir });
   }, 30000);

@@ -1,7 +1,7 @@
 /**
  * Re-run this whenever @github/copilot-sdk is upgraded to check whether
  * test/systemMessageBaseline.ts's FROZEN_SDK_SYSTEM_MESSAGE_BASELINE
- * has drifted from what the installed SDK actually generates (see #345).
+ * has drifted from what the installed SDK actually generates.
  * This does NOT write systemMessageBaseline.ts for you -- it writes a raw
  * capture to /tmp for you to diff by hand and fold in deliberately,
  * including re-stripping the environment_context/session_context sections

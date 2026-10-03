@@ -14,14 +14,13 @@ export interface ExecutionConfig {
 }
 
 /**
- * The known-models data ProviderRegistry needs, injected by the app instead
- * of imported from it (extraction plan phase 2b — removes back-edge 2). The
- * app builds it from its own role/tier configuration; see
- * getProviderRegistryConfig() in src/config/models.ts.
+ * The known-models data ProviderRegistry needs, injected by the caller
+ * because model and role configuration is out of scope for this package.
+ * The caller builds it from its own role/tier configuration.
  */
 export interface ProviderRegistryConfig {
   /**
-   * Ordered tier model names (the app's MODEL_TIERS). Used as the
+   * Ordered tier model names (the caller's model tiers). Used as the
    * exact-then-longest-partial mapping candidates in getMappedModel and as
    * the default-model fallback — deliberately NOT the full known-model list,
    * so unmapped models keep falling back to the tier default instead of
@@ -29,13 +28,13 @@ export interface ProviderRegistryConfig {
    */
   tierModels: readonly string[];
   /**
-   * Role anchor models (the app's planner and auditor configs), checked in
+   * Role anchor models (the caller's per-role configs), checked in
    * order after tierModels during model mapping.
    */
   roleModels: readonly ModelProviderConfig[];
   /**
-   * Every known model config (the app's planner, auditor, executor tiers,
-   * and known models) used to resolve a model's provider in getProviderType
+   * Every known model config (the caller's roles, tiers and known models)
+   * used to resolve a model's provider in getProviderType
    * and getExecutionConfig.
    */
   allConfigs: readonly ModelProviderConfig[];
@@ -49,7 +48,7 @@ export class ProviderRegistry {
 
   /**
    * @param apiKey      Default API key handed to provider configs.
-   * @param knownModels The app's role/tier model data. Omitted (the package
+   * @param knownModels The caller's role/tier model data. Omitted (the package
    *   standalone default) behaves like an empty configuration: mapping falls
    *   back to 'gemini-3.1-flash-lite' and provider resolution to the
    *   openrouter/gemini heuristics.

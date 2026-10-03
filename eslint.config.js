@@ -38,12 +38,11 @@ export default [
         },
     },
     {
-        // Issue #246: CopilotClient.createSession/resumeSession must only be
+        // CopilotClient.createSession/resumeSession must only be
         // called from SessionWrapper (src/copilotSdk/sessionWrapper.ts), which
         // binds and re-derives a session's tool policy on every create/resume.
         // Calling either method anywhere else can silently drop
-        // `availableTools`/`onPermissionRequest`/`autoApproveAll` (the exact
-        // regressions issue #246 was opened over). boundary.ts is exempt because
+        // `availableTools`/`onPermissionRequest`/`autoApproveAll`. boundary.ts is exempt because
         // it *is* the SDK boundary -- its `super.createSession`/`super.resumeSession`
         // calls are the base-class delegation the override wraps, not a bypass.
         // sessionWrapper.ts is exempt for the same reason: it *is* the sanctioned
@@ -65,13 +64,13 @@ export default [
                     selector:
                         "CallExpression[callee.property.name='createSession']",
                     message:
-                        "❌ Do not call CopilotClient.createSession directly. Use SessionWrapper from src/copilotSdk/sessionWrapper.ts so the session's tool policy is bound and enforced (issue #246, SYS-REQ-026/027). If this call site predates the wrapper and hasn't been migrated yet, add a documented eslint-disable-next-line referencing the issue rather than removing this rule.",
+                        "❌ Do not call CopilotClient.createSession directly. Use SessionWrapper from src/copilotSdk/sessionWrapper.ts so the session's tool policy is bound and enforced (SYS-REQ-026/027). If this call site predates the wrapper and hasn't been migrated yet, add a documented eslint-disable-next-line referencing the issue rather than removing this rule.",
                 },
                 {
                     selector:
                         "CallExpression[callee.property.name='resumeSession']",
                     message:
-                        "❌ Do not call CopilotClient.resumeSession directly. Use SessionWrapper from src/copilotSdk/sessionWrapper.ts so the full tool policy (availableTools/onPermissionRequest/autoApproveAll) is re-derived on resume instead of risking a partial config (issue #246, SYS-REQ-026/027). If this call site predates the wrapper and hasn't been migrated yet, add a documented eslint-disable-next-line referencing the issue rather than removing this rule.",
+                        "❌ Do not call CopilotClient.resumeSession directly. Use SessionWrapper from src/copilotSdk/sessionWrapper.ts so the full tool policy (availableTools/onPermissionRequest/autoApproveAll) is re-derived on resume instead of risking a partial config (SYS-REQ-026/027). If this call site predates the wrapper and hasn't been migrated yet, add a documented eslint-disable-next-line referencing the issue rather than removing this rule.",
                 },
             ],
         },

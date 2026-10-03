@@ -89,5 +89,5 @@ npm run build      # dist/: ESM bundles plus .d.ts
 
 Integration tests replay recorded model traffic through `test/harness/CapiProxy.ts`
 (see `docs/copilot-sdk-record-replay.md`). No test needs Docker or network access: the
-Docker runner tests mock `child_process`. The check against a real container lives in
-copilot-ui (`scripts/verify-run-terminal-docker.ts`).
+Docker runner tests mock `child_process`, so nothing in this repo checks the Docker
+runner against a real container.

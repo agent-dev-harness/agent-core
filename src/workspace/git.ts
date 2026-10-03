@@ -14,14 +14,11 @@ const GIT_TIMEOUT_MS = 30_000;
  * Generic git sandbox over the workspace runner: init, base-branch detection,
  * diffs, snapshot commits, HEAD SHA, checkout, and checkpoint restore.
  *
- * This is the package-side (agentCore) half of the sandbox. Task/PBI branch
- * orchestration — `task/<id>` and `pbi/<id>` naming, park/resume/merge, and
- * persisting branch names on task records — is app policy and lives in the
- * app-side subclass `TaskGitSandbox` (src/orchestration/taskGitSandbox.ts),
- * which composes this class through the protected `withLock`/`git`/`sh`/
- * `checkoutBaseBranch` hooks rather than reaching into private state.
- * (Extraction plan phase 2a: this split removed agentCore's dynamic imports
- * of orchestration/db/taskStore.)
+ * Branch orchestration policy — branch naming, park/resume/merge, and
+ * persisting branch names — belongs to the caller. A caller that needs it
+ * subclasses this class and composes it through the protected `withLock`/
+ * `git`/`sh`/`checkoutBaseBranch` hooks rather than reaching into private
+ * state, so agent-core never has to import caller code.
  */
 export class GitSandbox {
     private readonly workTree: string;
@@ -46,9 +43,8 @@ export class GitSandbox {
     // -------------------------------------------------------------------------
     // Lock helper — wraps any async operation so the busy flag is held for the
     // entire duration of the public method, not just each individual git() call.
-    // Protected (not private) so the app-side subclass
-    // (src/orchestration/taskGitSandbox.ts) can wrap its own multi-step
-    // operations in the same lock.
+    // Protected (not private) so a caller's subclass can wrap its own
+    // multi-step operations in the same lock.
     // -------------------------------------------------------------------------
     protected async withLock<T>(fn: () => Promise<T>): Promise<T> {
         if (this.busy) {
@@ -69,7 +65,7 @@ export class GitSandbox {
     // runs in the same environment as the workspace (host or container).
     // Uses a dedicated GIT_TIMEOUT_MS deadline — tighter than the runner's
     // default user-command timeout — so hung git ops fail loudly and fast.
-    // Protected so the app-side subclass can compose raw git sequences.
+    // Protected so a caller's subclass can compose raw git sequences.
     // -------------------------------------------------------------------------
     protected async git(args: string[]): Promise<string> {
         // Build env prefix so git uses the correct work tree and git dir
@@ -97,7 +93,7 @@ export class GitSandbox {
     // -------------------------------------------------------------------------
     // Shell helper — runs a non-git command in the workspace environment.
     // Used for mkdir, tee, etc. during initialisation.
-    // Protected so the app-side subclass can compose shell commands too.
+    // Protected so a caller's subclass can compose shell commands too.
     // -------------------------------------------------------------------------
     protected async sh(command: string): Promise<void> {
         const result = await this.execCommand(command);
@@ -112,8 +108,8 @@ export class GitSandbox {
      * Deduplicates candidates to avoid redundant CLI invocations.
      *
      * Protected (and lock-free): it is a building block for public methods,
-     * which hold the lock across the whole operation. The app-side subclass
-     * calls it inside its own withLock-wrapped implementations.
+     * which hold the lock across the whole operation. A caller's subclass
+     * can call it inside its own withLock-wrapped implementations.
      */
     protected async checkoutBaseBranch(): Promise<void> {
         const candidates = Array.from(new Set([this.baseBranch, "main", "master"]));
@@ -170,9 +166,8 @@ export class GitSandbox {
 
     /**
      * The trunk/base branch name this sandbox is targeting (e.g. "main").
-     * Detected during initialization; the app-side task-branch layer
-     * (src/orchestration/taskGitSandbox.ts) uses it to compute PBI diffs
-     * against trunk.
+     * Detected during initialization; a caller's task-branch subclass can
+     * use it to compute diffs against trunk.
      */
     public getBaseBranchName(): string {
         return this.baseBranch;

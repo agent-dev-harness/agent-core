@@ -56,7 +56,7 @@ async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promis
   }
 }
 
-// Exercises the Issue #180 diagnostic logging (sendAndWaitWithAbort's
+// Exercises the diagnostic logging (sendAndWaitWithAbort's
 // tool.execution_start / usage-telemetry logs) against a REAL CopilotClient/CopilotSession talking to the CapiProxy
 // harness described in docs/copilot-sdk-record-replay.md, rather than the
 // hand-mocked session.on()/sendAndWait() doubles used elsewhere in this
@@ -65,7 +65,7 @@ async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promis
 // tool call, so this catches drift between our assumptions (in
 // toolCallEnforcement.ts) and the SDK's real contract that a fully mocked
 // session/client can't.
-describe('Forced tool turn diagnostics against real SDK/proxy transport (Issue #180)', () => {
+describe('Forced tool turn diagnostics against real SDK/proxy transport', () => {
   let proxy: CapiProxy;
   let proxyUrl: string;
   const tmpWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-rotation-sdk-'));
@@ -80,7 +80,7 @@ describe('Forced tool turn diagnostics against real SDK/proxy transport (Issue #
 
     const snapshotPath = path.resolve(
       process.cwd(),
-      'test/snapshots/gate_loop/auditor_rotation_immediate_tool_call.yaml'
+      'test/snapshots/forced_tool_turn/auditor_rotation_immediate_tool_call.yaml'
     );
     await proxy.updateConfig({ filePath: snapshotPath, workDir: tmpWorkDir });
   }, 30000);

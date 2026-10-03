@@ -8,7 +8,7 @@ import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from ".
 // docker-compose.yml); silently defaulting to a guessed path (previously
 // /tmp/applet_workspace, which is shadowed by the container's /tmp tmpfs
 // mount) just reproduces a misconfiguration invisibly instead of failing at
-// the point it happens. See issue #446.
+// the point it happens.
 let WORKSPACE_HOST_LOCATION = "";
 
 function getWorkspaceHostLocationOrThrow(): string {
@@ -51,8 +51,8 @@ function getContainerName(): string {
 // any real command runs, but not worth a `docker exec test -d` round-trip on
 // every single invocation. A present-but-wrong var (e.g. a stale value from
 // a previous job, or a step exporting a path different from the one
-// `docker compose up` mounted) is exactly the drift #446 calls out as
-// undetected by the missing-var check alone.
+// `docker compose up` mounted) is drift the missing-var check alone can't
+// detect.
 let workspaceMountVerified = false;
 
 // Bound the mount-verification probe the same way exec/kill work elsewhere

@@ -7,7 +7,7 @@ afterEach(() => {
 
 describe("Docker workspace host location", () => {
   it("throws a clear config error instead of silently defaulting when unset", async () => {
-    // No hidden default: issue #446 -- a silent default (previously
+    // No hidden default: a silent default (previously
     // /tmp/applet_workspace) reproduces a misconfiguration invisibly
     // instead of failing at the point it happens.
     delete process.env.WORKSPACE_HOST_LOCATION;

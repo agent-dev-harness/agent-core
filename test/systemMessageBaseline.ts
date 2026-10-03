@@ -4,10 +4,9 @@
  * tools, zero caller content -- see test/scripts/capture-system-message-baseline.ts).
  *
  * History: this capture was made while SessionWrapper drove `systemMessage`
- * in `replace` mode exclusively (issue #345 -- `append`/`customize` modes
- * splice in an SDK-managed `tool_instructions` section re-derived from the
- * live `availableTools` on every turn, the KV-cache-prefix hazard #345
- * closed; see sessionWrapper.integration.test.ts's now-fixed "freezes
+ * in `replace` mode exclusively (`append`/`customize` modes splice in an
+ * SDK-managed `tool_instructions` section re-derived from the live
+ * `availableTools` on every turn, a KV-cache-prefix hazard; see sessionWrapper.integration.test.ts's now-fixed "freezes
  * systemMessage across resume" case). SessionWrapper has since moved back
  * to `customize` mode (SYS-REQ-028h), so the SDK injects its own baseline
  * sections again and this constant is no longer the basis of any live

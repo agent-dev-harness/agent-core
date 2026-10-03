@@ -16,7 +16,7 @@ describe('Copilot SDK Client Integration Tests', () => {
     console.log(`CapiProxy listening at ${proxyUrl}`);
 
     // This test's tool handlers are fully mocked (no real command execution),
-    // but workingDirectory is still kept isolated from the app's own source
+    // but workingDirectory is still kept isolated from the repo's own source
     // tree as a defensive precaution rather than pointed at process.cwd().
     const tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-integration-'));
 
@@ -32,7 +32,7 @@ describe('Copilot SDK Client Integration Tests', () => {
         analytics_tracking_id: "test-tracking-id",
       });
 
-      const snapshotPath = path.resolve(process.cwd(), 'test/snapshots/gate_loop/single_retry.yaml');
+      const snapshotPath = path.resolve(process.cwd(), 'test/snapshots/forced_tool_turn/single_retry.yaml');
       await proxy.updateConfig({
         filePath: snapshotPath,
         workDir: tempWorkDir,

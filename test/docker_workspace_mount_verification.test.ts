@@ -9,7 +9,7 @@ vi.mock("child_process", () => ({
   spawnSync: vi.fn(),
 }));
 
-describe("Docker workspace mount verification (#446)", () => {
+describe("Docker workspace mount verification", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();

@@ -2,7 +2,7 @@
 
 ## Context
 
-Follow-up to SYS-REQ-027k (issue #146), which stabilized the `messages` prefix
+Follow-up to SYS-REQ-027k, which stabilized the `messages` prefix
 across resume by freezing `systemMessage` under `replace` mode. Investigation
 established that the `tools` field sent to the model is a **separate** payload
 from `messages`, is **not** stabilized by SYS-REQ-027k, and that mutating it
@@ -58,7 +58,7 @@ governed by subset membership evaluated at the permission layer (SYS-REQ-028d).
   model is *told* it may call — e.g. `availableTools` — **shall** be set once,
   to the full construction-time tool list, and **shall never** be narrowed to
   the enabled subset on any turn or resume. Narrowing this field per-turn
-  reintroduces the exact hazard behind issue #146 (`resumeSession`'s
+  reintroduces the exact hazard behind SYS-REQ-027k (`resumeSession`'s
   `availableTools` narrowing regenerates the system message and busts the
   cache) that this spec exists to close — schema-freeze under SYS-REQ-028
   alone does not prevent it, since `availableTools` and the `tools` schema
@@ -104,7 +104,7 @@ governed by subset membership evaluated at the permission layer (SYS-REQ-028d).
   own "does not exist" rejection, which never reaches `onPermissionRequest`
   and so silently defeats SYS-REQ-028d enforcement for custom tools. For
   `systemMessage`: `resumeSession` does not inherit it from the session
-  being resumed (issue #208) -- omitting it silently falls back to the SDK's
+  being resumed -- omitting it silently falls back to the SDK's
   default `copilot-cli` system prompt for the rest of the turn, discarding
   SYS-REQ-028h's frozen prompt without any error. `autoApproveAll: false`
   **shall** also be passed explicitly on resume: `boundary.ts`'s
@@ -160,7 +160,7 @@ governed by subset membership evaluated at the permission layer (SYS-REQ-028d).
   unwanted shape (e.g. an explicit `enabled: false`). This is not a defense
   against plain omission: the SDK's own `LargeToolOutputConfig.enabled`
   defaults to `true`, so an omitted `largeOutput` field already leaves
-  large-output handling (truncate-and-reference) active (see issue #467).
+  large-output handling (truncate-and-reference) active.
   The hazard this item closes is a spread source that supplies `largeOutput`
   explicitly and unexpectedly wins.
 

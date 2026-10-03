@@ -4,20 +4,19 @@
  * Fails if any file under a target root (src/, test/, scripts/) imports
  * anything that resolves outside the package directory, with two exceptions:
  *   - Node builtins and the bare packages in ALLOWED_BARE_SPECS (the
- *     package's fixed third-party surface, plan §3);
- *   - entries in KNOWN_VIOLATIONS, the seeded allowlist of the five
- *     back-edges the extraction plan starts from.
+ *     package's fixed third-party surface);
+ *   - entries in KNOWN_VIOLATIONS, an allowlist of known outside imports.
+ *     It is empty, so every outside import fails.
  *
  * Checked import forms: static `import ... from`, `export ... from`,
  * dynamic `import()`, `require()`, type-position `import("...").T`, and
  * `vi.mock`/`jest.mock` string paths. Dynamic forms are the reason this
- * guard exists: back-edge 5 (three dynamic taskStore imports in
- * workspace/git.ts) is invisible to a static import scan and to
- * `no-restricted-imports`.
+ * guard exists: a dynamic `import()` of code outside the package is
+ * invisible to a static import scan and to `no-restricted-imports`.
  *
  * KNOWN_VIOLATIONS is a ratchet: it may only shrink. An entry whose
  * violation no longer occurs is stale and fails the guard, so removed
- * back-edges force entry deletion instead of letting the list rot.
+ * imports force entry deletion instead of letting the list rot.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,11 +32,10 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 // fails loudly rather than silently no-oping if a root is missing.
 const TARGET_ROOTS: readonly string[] = ['src', 'test', 'scripts'];
 
-// Third-party packages agentCore may import directly (plan §3: the package's
-// third-party surface is @github/copilot-sdk, plus vitest for the in-tree
-// test file). Node builtins are always allowed. `express` joined in phase 2c
-// as the future package's optional peer dependency — it is confined to the
-// proxy/ subdirectory (the ./proxy subpath), which is the only agentCore
+// Third-party packages agent-core may import directly: @github/copilot-sdk,
+// plus vitest for the in-tree tests. Node builtins are always allowed.
+// `express` is the package's optional peer dependency — it is confined to the
+// proxy/ subdirectory (the ./proxy subpath), which is the only agent-core
 // module that touches it.
 const ALLOWED_BARE_SPECS: ReadonlySet<string> = new Set([
     '@github/copilot-sdk',
@@ -54,17 +52,11 @@ interface KnownViolation {
     file: string;
     /** Module specifier exactly as written in the source. */
     spec: string;
-    /** Back-edge number from the extraction plan §3, for traceability. */
+    /** Tracking number for the entry, printed alongside it. */
     backEdge: number;
 }
 
-// Phases 0-2 of the extraction plan are complete: all five plan §3 back-edges
-// are gone (1: toolHandlers moved to orchestration in phase 1; 2+3: config
-// data moved into agentCore/config and injected in phase 2b; 4: express
-// isolated behind the proxy/ subdirectory and allowed as the package's
-// optional peer dependency in phase 2c; 5: the dynamic taskStore imports in
-// workspace/git.ts moved to the app-side TaskGitSandbox in phase 2a). The
-// allowlist is empty — any violation now fails the guard outright. Keyed by
+// The allowlist is empty — any violation fails the guard outright. Keyed by
 // (file, spec) so entries survive line shifts.
 const KNOWN_VIOLATIONS: readonly KnownViolation[] = [];
 
@@ -256,11 +248,11 @@ function main(): void {
     const stale = [...allowlistKeys.keys()].filter((key) => !matchedKeys.has(key));
 
     if (matchedKeys.size > 0) {
-        console.log(`\nAllowlisted back-edge imports (KNOWN_VIOLATIONS — may only shrink): ${matchedKeys.size}/${KNOWN_VIOLATIONS.length} entries still active`);
+        console.log(`\nAllowlisted outside imports (KNOWN_VIOLATIONS — may only shrink): ${matchedKeys.size}/${KNOWN_VIOLATIONS.length} entries still active`);
         for (const imp of boundaryViolations) {
             const known = allowlistKeys.get(`${imp.file}::${imp.spec}`);
             if (known) {
-                console.log(`  [back-edge ${known.backEdge}] ${imp.file}:${imp.line}  "${imp.spec}"  (${imp.kind})`);
+                console.log(`  [entry ${known.backEdge}] ${imp.file}:${imp.line}  "${imp.spec}"  (${imp.kind})`);
             }
         }
     }
@@ -268,12 +260,12 @@ function main(): void {
     let failed = false;
     if (fresh.length > 0) {
         failed = true;
-        console.error('\n❌ NEW boundary violation(s) — agentCore importing from outside its own tree, not in KNOWN_VIOLATIONS:');
+        console.error('\n❌ NEW boundary violation(s) — agent-core importing from outside its own tree, not in KNOWN_VIOLATIONS:');
         for (const imp of fresh) {
             console.error(`  ${imp.file}:${imp.line}  "${imp.spec}"  (${imp.kind})`);
         }
-        console.error('\nagentCore must not import from the app (docs/agent-core-extraction-plan.md §3). ' +
-            'Fix the import; do not add a KNOWN_VIOLATIONS entry without plan sign-off.\n');
+        console.error('\nagent-core must not import from outside the package. ' +
+            'Fix the import; do not add a KNOWN_VIOLATIONS entry without owner sign-off.\n');
     }
     if (stale.length > 0) {
         failed = true;
@@ -282,7 +274,7 @@ function main(): void {
         for (const key of stale) {
             const known = allowlistKeys.get(key);
             if (known) {
-                console.error(`  [back-edge ${known.backEdge}] ${known.file}  "${known.spec}"`);
+                console.error(`  [entry ${known.backEdge}] ${known.file}  "${known.spec}"`);
             }
         }
         console.error('');
