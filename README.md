@@ -37,15 +37,20 @@ Out of scope: model and role configuration. The caller passes these in.
 
 | Import | Contents |
 |---|---|
-| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
 | `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
-| `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `setActiveOpenRouterSessionId` (needs `express`, an optional peer dependency) |
+| `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `OPENROUTER_SESSION_ID_HEADER` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
 | `@agent-dev-harness/agent-core/testing` | `nativeRunner`, for test harnesses that drive the native runner directly |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
 `makeRunTerminalDockerHandler`. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
+
+To group a session's OpenRouter requests, pass
+`registry.getExecutionConfig(model, { openRouterSessionId })`. The provider config then
+carries the id in a request header, and the proxy adds it to each request body as
+`session_id`, so concurrent sessions in one process each keep their own id.
 
 ## Environment variables
 
@@ -73,9 +78,6 @@ package does not read `GEMINI_API_KEY` itself.
 
 ## Known limitations
 
-- The proxy keeps the active OpenRouter session id in module-level state
-  (`setActiveOpenRouterSessionId`), so it is only correct for one session at a time per
-  process.
 - `AI_STUDIO`, `NODE_ENV` and `VITEST` select the runner inside production code.
 
 ## Development

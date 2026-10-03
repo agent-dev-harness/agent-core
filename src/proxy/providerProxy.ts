@@ -1,13 +1,9 @@
 import https from 'https';
 import type { Express } from 'express';
+import { OPENROUTER_SESSION_ID_HEADER } from '../providerRegistry';
 
-let activeOpenRouterSessionId: string | undefined;
-export function setActiveOpenRouterSessionId(sessionId: string | undefined) {
-  activeOpenRouterSessionId = sessionId;
-  hasLoggedProviderToolsForCurrentSession = false;
-}
-
-let hasLoggedProviderToolsForCurrentSession = false;
+const MAX_TRACKED_TOOL_LOG_KEYS = 1000;
+const loggedToolListKeys = new Set<string>();
 
 export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) => void) {
   app.all('/api/providers/:provider/*', (req, res) => {
@@ -16,6 +12,8 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
     req.on('end', () => {
       const provider = req.params.provider;
       const method = req.method;
+      const sessionHeader = req.headers[OPENROUTER_SESSION_ID_HEADER];
+      const openRouterSessionId = typeof sessionHeader === 'string' && sessionHeader ? sessionHeader : undefined;
 
       let modifiedBody = bodyData;
       let targetHostname = 'api.openai.com';
@@ -41,10 +39,10 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
       } else if (provider === 'openrouter') {
         targetHostname = 'openrouter.ai';
         try {
-          if (bodyData && activeOpenRouterSessionId) {
+          if (bodyData && openRouterSessionId) {
             const data = JSON.parse(bodyData);
             if (data && typeof data === 'object' && !data.session_id) {
-              data.session_id = activeOpenRouterSessionId;
+              data.session_id = openRouterSessionId;
               modifiedBody = JSON.stringify(data);
             }
           }
@@ -54,6 +52,7 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
       }
 
       const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: targetHostname };
+      delete headers[OPENROUTER_SESSION_ID_HEADER];
       if (provider === 'openrouter') {
         if (!headers.authorization) {
           const key = process.env.OPENROUTER_API_KEY;
@@ -71,7 +70,8 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
       delete headers['accept-encoding'];
       headers['content-length'] = Buffer.byteLength(modifiedBody).toString();
 
-      if (!hasLoggedProviderToolsForCurrentSession) {
+      const toolLogKey = `${provider}:${openRouterSessionId ?? ''}`;
+      if (!loggedToolListKeys.has(toolLogKey)) {
         try {
           const parsedForLogging = modifiedBody ? JSON.parse(modifiedBody) : undefined;
           const toolNames = Array.isArray(parsedForLogging?.tools)
@@ -79,11 +79,12 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
             : undefined;
           const line = toolNames
             ? `[ProviderProxy] ${provider} request tools (${toolNames.length}): ${toolNames.join(', ')}` +
-              (activeOpenRouterSessionId ? ` [session_id=${activeOpenRouterSessionId}]` : '')
+              (openRouterSessionId ? ` [session_id=${openRouterSessionId}]` : '')
             : `[ProviderProxy] ${provider} request has no 'tools' field.`;
           console.log(line);
           writeLog(line);
-          hasLoggedProviderToolsForCurrentSession = true;
+          if (loggedToolListKeys.size >= MAX_TRACKED_TOOL_LOG_KEYS) loggedToolListKeys.clear();
+          loggedToolListKeys.add(toolLogKey);
         } catch (e) {
           const errLine = `[ProviderProxy] tool-list logging: failed to parse/log tools: ${e instanceof Error ? e.message : String(e)}`;
           console.log(errLine);

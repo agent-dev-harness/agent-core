@@ -1,10 +1,13 @@
 import { ModelProviderConfig, ProviderType } from './config/models';
 
+export const OPENROUTER_SESSION_ID_HEADER = 'x-openrouter-session-id';
+
 export interface ProviderConfig {
   type: 'openai' | 'anthropic' | 'azure';
   baseUrl: string;
   apiKey?: string;
   wireApi?: 'completions' | 'responses';
+  headers?: Record<string, string>;
 }
 
 export interface ExecutionConfig {
@@ -167,7 +170,10 @@ export class ProviderRegistry {
     return undefined;
   }
 
-  public getExecutionConfig(input: string | ModelProviderConfig): ExecutionConfig {
+  public getExecutionConfig(
+    input: string | ModelProviderConfig,
+    options?: { openRouterSessionId?: string },
+  ): ExecutionConfig {
     let providerType: ProviderType = 'gemini';
     let model: string;
 
@@ -198,6 +204,9 @@ export class ProviderRegistry {
     }
 
     const provider = this.getProviderConfig(providerType, model);
+    if (provider && providerType === 'openrouter' && options?.openRouterSessionId) {
+      provider.headers = { ...provider.headers, [OPENROUTER_SESSION_ID_HEADER]: options.openRouterSessionId };
+    }
     return {
       model,
       providerType,
