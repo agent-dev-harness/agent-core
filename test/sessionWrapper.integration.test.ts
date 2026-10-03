@@ -222,13 +222,13 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
     const client = makeClient();
     await client.start();
     try {
-      const wrapper = makeWrapper(client, { builtins: ['bash', 'view'] })
+      const wrapper = makeWrapper(client, { builtins: ['edit', 'view'] })
         .setModelName('claude-sonnet-4.5')
         .setSystemPrompt('Initial prompt marker.');
 
       await wrapper.sendAndWait('Status check', 15000);
 
-      wrapper.disableTools('bash').enableTools('view').setSystemPrompt('Updated prompt marker.');
+      wrapper.disableTools('edit').enableTools('view').setSystemPrompt('Updated prompt marker.');
 
       await wrapper.sendAndWait('Status check', 15000);
 
@@ -240,7 +240,7 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
       const secondUser = [...completions[1].messages].reverse().find((m: any) => m.role === 'user')?.content ?? '';
 
       // Match SessionWrapper's own tool-usage sentence (buildToolUsageSection
-      // in sessionWrapper.ts) rather than a bare substring like "bash" --
+      // in sessionWrapper.ts) rather than a bare substring like "edit" --
       // the SDK's own boilerplate instructions mention built-in tool names
       // generically, which would make a bare substring check pass
       // regardless of what SessionWrapper actually derived.

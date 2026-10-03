@@ -48,6 +48,10 @@ function shellRequest(): PermissionRequest {
   return { kind: 'shell' } as PermissionRequest;
 }
 
+function writeRequest(): PermissionRequest {
+  return { kind: 'write' } as PermissionRequest;
+}
+
 function readRequest(): PermissionRequest {
   return { kind: 'read' } as PermissionRequest;
 }
@@ -72,17 +76,17 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
 
     expect(config.availableTools).toEqual([]);
     expect(config.autoApproveAll).toBe(false);
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toMatchObject({
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
     });
   });
 
   it('with one built-in tool: availableTools and permission agree, and both stay true after a later disableTools call (028/028d-1)', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     const config = wrapper._createConfig();
 
-    expect(config.availableTools).toEqual(['bash']);
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    expect(config.availableTools).toEqual(['edit']);
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
     await expect(config.onPermissionRequest(readRequest(), { sessionId: 's1' })).resolves.toMatchObject({
@@ -90,27 +94,27 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
     });
 
     // Disabling the tool must NOT change the wire-level schema (028/028d-1):
-    // availableTools is re-read fresh below and must still list 'bash'.
-    wrapper.disableTools('bash');
+    // availableTools is re-read fresh below and must still list 'edit'.
+    wrapper.disableTools('edit');
     const configAfterDisable = wrapper._createConfig();
-    expect(configAfterDisable.availableTools).toEqual(['bash']);
+    expect(configAfterDisable.availableTools).toEqual(['edit']);
     // But the permission layer now denies it (028d).
     await expect(
-      configAfterDisable.onPermissionRequest(shellRequest(), { sessionId: 's1' })
+      configAfterDisable.onPermissionRequest(writeRequest(), { sessionId: 's1' })
     ).resolves.toMatchObject({ kind: 'reject' });
   });
 
   it('with N mixed built-in and custom tools: every candidate resolves consistently', async () => {
     const tool = fakeTool('my_custom_tool');
     const wrapper = new SessionWrapper(undefined, {
-      builtins: ['bash', 'view', 'grep', 'glob', 'edit'],
+      builtins: ['view', 'grep', 'glob', 'edit'],
       custom: [tool],
     });
     const config = wrapper._createConfig();
 
-    expect(config.availableTools).toEqual(['bash', 'view', 'grep', 'glob', 'edit', 'my_custom_tool']);
+    expect(config.availableTools).toEqual(['view', 'grep', 'glob', 'edit', 'my_custom_tool']);
     expect(config.tools).toEqual([tool]);
-    for (const req of [shellRequest(), readRequest(), customToolRequest('my_custom_tool')]) {
+    for (const req of [writeRequest(), readRequest(), customToolRequest('my_custom_tool')]) {
       await expect(config.onPermissionRequest(req, { sessionId: 's1' })).resolves.toEqual({
         kind: 'approve-once',
       });
@@ -121,22 +125,22 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
   });
 
   it('approval is per-call, not a standing grant: repeated calls to an enabled tool are each independently approved', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     const config = wrapper._createConfig();
 
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
   });
 
   it('all construction-time tools are enabled by default (SYS-REQ-028c)', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash', 'view'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] });
     const config = wrapper._createConfig();
 
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
     await expect(config.onPermissionRequest(readRequest(), { sessionId: 's1' })).resolves.toEqual({
@@ -161,7 +165,6 @@ describe('SessionWrapper permission-kind derivation (issue #277 regression cover
   // multiple-siblings-share-a-kind collision behavior covered separately by
   // 'rejects a real "grep" tool call ...' in sessionWrapper.integration.test.ts).
   it.each([
-    { builtin: 'bash', request: shellRequest(), kindLabel: 'shell' },
     { builtin: 'view', request: readRequest(), kindLabel: 'read' },
     { builtin: 'grep', request: readRequest(), kindLabel: 'read' },
     { builtin: 'glob', request: readRequest(), kindLabel: 'read' },
@@ -191,22 +194,22 @@ describe('SessionWrapper permission-kind derivation (issue #277 regression cover
 
 describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
   it('disableTools denies at the permission layer without touching availableTools/tools', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
-    wrapper.disableTools('bash');
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
+    wrapper.disableTools('edit');
     const config = wrapper._createConfig();
 
-    expect(config.availableTools).toEqual(['bash']);
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toMatchObject({
+    expect(config.availableTools).toEqual(['edit']);
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
     });
   });
 
   it('enableTools re-allows a previously-disabled tool', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
-    wrapper.disableTools('bash').enableTools('bash');
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
+    wrapper.disableTools('edit').enableTools('edit');
     const config = wrapper._createConfig();
 
-    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    await expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
   });
@@ -226,43 +229,43 @@ describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
   });
 
   it('throws synchronously on an unknown tool name and applies no partial state change (SYS-REQ-028b)', () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash', 'view'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] });
 
-    expect(() => wrapper.disableTools('bash', 'unknown_tool')).toThrow(/unknown tool/);
+    expect(() => wrapper.disableTools('edit', 'unknown_tool')).toThrow(/unknown tool/);
 
-    // 'bash' must still be enabled -- the throw happened before any mutation
+    // 'edit' must still be enabled -- the throw happened before any mutation
     // was applied, not partway through the name list.
     const config = wrapper._createConfig();
-    return expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toEqual({
+    return expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
   });
 
   it('enableTools with an unknown name also throws synchronously, atomically', () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
-    wrapper.disableTools('bash');
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
+    wrapper.disableTools('edit');
 
-    expect(() => wrapper.enableTools('bash', 'unknown_tool')).toThrow(/unknown tool/);
+    expect(() => wrapper.enableTools('edit', 'unknown_tool')).toThrow(/unknown tool/);
 
-    // 'bash' must still be disabled -- the earlier disableTools call is not
+    // 'edit' must still be disabled -- the earlier disableTools call is not
     // undone by the partially-attempted enableTools call.
     const config = wrapper._createConfig();
-    return expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toMatchObject({
+    return expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
     });
   });
 
   it('a name never supplied at construction cannot be enabled -- there is no post-construction way to add a tool (SYS-REQ-028a)', () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     expect(() => wrapper.enableTools('view')).toThrow(/unknown tool/);
-    expect(wrapper._createConfig().availableTools).toEqual(['bash']);
+    expect(wrapper._createConfig().availableTools).toEqual(['edit']);
   });
 });
 
 describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028e/028f/028g)', () => {
   it('the first call always creates; a second call on the same instance resumes', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
     expect(createCalls).toHaveLength(1);
@@ -276,7 +279,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
 
   it('resume sends onPermissionRequest, autoApproveAll: false, and the SDK-mandatory tools/availableTools/systemMessage -- no model or other base-config fields (SYS-REQ-028g)', async () => {
     const { client, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }, { workingDirectory: '/tmp/work' })
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, { workingDirectory: '/tmp/work' })
       .setSystemPrompt('be terse')
       .setModelName('claude-sonnet-4.5');
 
@@ -307,10 +310,10 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
 
   it('the wire-level tools schema is byte-identical between create and every resume, even after enableTools/disableTools (SYS-REQ-028/028a)', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash', 'view'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit', 'view'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
-    wrapper.disableTools('bash').enableTools('bash').disableTools('view');
+    wrapper.disableTools('edit').enableTools('edit').disableTools('view');
     await wrapper.sendAndWait('turn two');
 
     // `tools`/`availableTools` ARE resent on resume (SYS-REQ-028g's SDK-
@@ -318,8 +321,8 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     // still be byte-identical to what create sent, never narrowed to the
     // enabled subset, regardless of the enableTools/disableTools calls in
     // between (SYS-REQ-028/028a/028d-1).
-    expect(createCalls[0]?.availableTools).toEqual(['bash', 'view']);
-    expect(resumeCalls[0]?.config?.availableTools).toEqual(['bash', 'view']);
+    expect(createCalls[0]?.availableTools).toEqual(['edit', 'view']);
+    expect(resumeCalls[0]?.config?.availableTools).toEqual(['edit', 'view']);
     expect(resumeCalls[0]?.config?.tools).toEqual(createCalls[0]?.tools);
   });
 });
@@ -327,7 +330,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
 describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
   it('is sent in customize mode, carrying the caller instructions, and resent byte-identical on resume', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] })
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
       .setSystemPrompt('you are an auditor')
       .setModelName('claude-sonnet-4.5');
 
@@ -346,7 +349,7 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
 
   it('stays byte-identical across every resume even if setSystemPrompt is called again mid-session', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] })
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
       .setSystemPrompt('initial')
       .setModelName('claude-sonnet-4.5');
 
@@ -362,7 +365,7 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
 
   it('setSystemPrompt after the session has started does not change what was already frozen at creation', async () => {
     const { client, createCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] })
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
       .setSystemPrompt('initial')
       .setModelName('claude-sonnet-4.5');
 
@@ -378,20 +381,20 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
 describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/028l)', () => {
   it('is prepended on the very first turn, before any mutation has happened', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash', 'view'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit', 'view'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
 
     const firstSendAndWait = sessions[0]?.sendAndWait as ReturnType<typeof vi.fn>;
     const firstPrompt = firstSendAndWait.mock.calls[0]?.[0] as string;
     expect(firstPrompt).toContain('Tools enabled this turn');
-    expect(firstPrompt).toContain('bash, view');
+    expect(firstPrompt).toContain('edit, view');
     expect(firstPrompt.endsWith('turn one')).toBe(true);
   });
 
   it('is present again on the second turn even when nothing changed', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
     await wrapper.sendAndWait('turn two');
@@ -404,7 +407,7 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
 
   it('reflects a disableTools call made between turns', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash', 'view'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit', 'view'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
     wrapper.disableTools('view');
@@ -412,13 +415,13 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
 
     const resumedSendAndWait = sessions[1]?.sendAndWait as ReturnType<typeof vi.fn>;
     const secondPrompt = resumedSendAndWait.mock.calls[0]?.[0] as string;
-    expect(secondPrompt).toContain('Only the following tools are currently enabled and may be called: bash.');
+    expect(secondPrompt).toContain('Only the following tools are currently enabled and may be called: edit.');
   });
 
   it('states that no tools are enabled when the subset is empty', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
-    wrapper.disableTools('bash');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
+    wrapper.disableTools('edit');
 
     await wrapper.sendAndWait('turn one');
 
@@ -429,7 +432,7 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
 
   it('prepends into MessageOptions.prompt rather than dropping the rest of the options', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait({ prompt: 'turn one', attachments: [{ type: 'file', path: '/tmp/x.txt' }] } as never);
 
@@ -442,7 +445,7 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
 
   it('also relays a system-prompt-only change as a distinct notice', async () => {
     const { client, sessions } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] })
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
       .setSystemPrompt('be terse')
       .setModelName('claude-sonnet-4.5');
 
@@ -458,15 +461,15 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
 
 describe('SessionWrapper.sendAndWait: mid-turn enablement race (SYS-REQ-028k)', () => {
   it('an in-flight call is unaffected by a disableTools that lands after its permission check already ran; a later call to the same tool is denied', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] });
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     const config = wrapper._createConfig();
 
-    const firstCallResult = await config.onPermissionRequest(shellRequest(), { sessionId: 's1' });
+    const firstCallResult = await config.onPermissionRequest(writeRequest(), { sessionId: 's1' });
     expect(firstCallResult).toEqual({ kind: 'approve-once' });
 
-    wrapper.disableTools('bash');
+    wrapper.disableTools('edit');
 
-    const secondCallResult = await config.onPermissionRequest(shellRequest(), { sessionId: 's1' });
+    const secondCallResult = await config.onPermissionRequest(writeRequest(), { sessionId: 's1' });
     expect(secondCallResult).toMatchObject({ kind: 'reject' });
   });
 });
@@ -474,7 +477,7 @@ describe('SessionWrapper.sendAndWait: mid-turn enablement race (SYS-REQ-028k)', 
 describe('SessionWrapper: misc lifecycle errors', () => {
   it('setModelName called after the session has started is never rejected and applies next turn', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
     expect(() => wrapper.setModelName('claude-opus-4.8')).not.toThrow();
@@ -487,19 +490,19 @@ describe('SessionWrapper: misc lifecycle errors', () => {
   });
 
   it('throws a clear error rather than calling the SDK when no client was supplied', async () => {
-    const wrapper = new SessionWrapper(undefined, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
     await expect(wrapper.sendAndWait('hello')).rejects.toThrow(/no CopilotClient/);
   });
 
   it('throws a clear error rather than silently dropping model when no model name was set', async () => {
     const { client } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] });
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] });
     await expect(wrapper.sendAndWait('hello')).rejects.toThrow(/no model name was set/);
   });
 
   it('_baseConfig fields survive the create config merge alongside a set model', async () => {
     const { client, createCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }, { workingDirectory: '/tmp/work' }).setModelName(
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, { workingDirectory: '/tmp/work' }).setModelName(
       'claude-sonnet-4.5'
     );
 
@@ -530,7 +533,7 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
     const wrapper = SessionWrapper.adopt(
       preexistingSession,
       client,
-      { builtins: ['bash'] },
+      { builtins: ['edit'] },
       {},
       'claude-sonnet-4.5',
       frozenSystemMessage('you are an auditor')
@@ -554,7 +557,7 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
     const wrapper = SessionWrapper.adopt(
       preexistingSession,
       client,
-      { builtins: ['bash'] },
+      { builtins: ['edit'] },
       {},
       'claude-sonnet-4.5',
       originalSystemMessage
@@ -577,7 +580,7 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
     const wrapper = SessionWrapper.adopt(
       preexistingSession,
       client,
-      { builtins: ['bash'] },
+      { builtins: ['edit'] },
       {},
       'claude-sonnet-4.5',
       frozenSystemMessage('original prompt')
@@ -603,23 +606,23 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
     const wrapper = SessionWrapper.adopt(
       preexistingSession,
       client,
-      { builtins: ['bash', 'view'] },
+      { builtins: ['edit', 'view'] },
       {},
       'claude-sonnet-4.5',
       frozenSystemMessage('original prompt')
     );
 
     const configBefore = wrapper._createConfig();
-    await expect(configBefore.onPermissionRequest({ kind: 'shell' } as PermissionRequest, { sessionId: 's1' })).resolves.toEqual({
+    await expect(configBefore.onPermissionRequest({ kind: 'write' } as PermissionRequest, { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
     });
 
-    wrapper.disableTools('bash');
+    wrapper.disableTools('edit');
     const configAfter = wrapper._createConfig();
     // Wire-level schema is still fixed to the full construction-time list
     // (028/028d-1) -- adoption doesn't change that either.
-    expect(configAfter.availableTools).toEqual(['bash', 'view']);
-    await expect(configAfter.onPermissionRequest({ kind: 'shell' } as PermissionRequest, { sessionId: 's1' })).resolves.toMatchObject({
+    expect(configAfter.availableTools).toEqual(['edit', 'view']);
+    await expect(configAfter.onPermissionRequest({ kind: 'write' } as PermissionRequest, { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
     });
   });
@@ -629,8 +632,8 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
     const sessionA = { sessionId: 'session-a', sendAndWait: vi.fn().mockResolvedValue(undefined) } as unknown as CopilotSession;
     const sessionB = { sessionId: 'session-b', sendAndWait: vi.fn().mockResolvedValue(undefined) } as unknown as CopilotSession;
 
-    const wrapperA = SessionWrapper.adopt(sessionA, client, { builtins: ['bash'] }, {}, 'claude-sonnet-4.5', frozenSystemMessage('a'));
-    const wrapperB = SessionWrapper.adopt(sessionB, client, { builtins: ['bash'] }, {}, 'claude-sonnet-4.5', frozenSystemMessage('b'));
+    const wrapperA = SessionWrapper.adopt(sessionA, client, { builtins: ['edit'] }, {}, 'claude-sonnet-4.5', frozenSystemMessage('a'));
+    const wrapperB = SessionWrapper.adopt(sessionB, client, { builtins: ['edit'] }, {}, 'claude-sonnet-4.5', frozenSystemMessage('b'));
 
     expect(wrapperA.session).toBe(sessionA);
     expect(wrapperB.session).toBe(sessionB);
@@ -641,7 +644,7 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
 describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m, issue #467)', () => {
   it('sends the locked-down largeOutput config on create', async () => {
     const { client, createCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }).setModelName('claude-sonnet-4.5');
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
 
@@ -654,7 +657,7 @@ describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m, issue 
     // by mistake or to intentionally (and incorrectly) disable it -- SYS-
     // REQ-028m requires the literal in the createSession call to win
     // regardless, since it's spread last.
-    const wrapper = new SessionWrapper(client, { builtins: ['bash'] }, {
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, {
       largeOutput: { enabled: false },
     }).setModelName('claude-sonnet-4.5');
 
@@ -688,5 +691,23 @@ describe('SessionWrapper side-door surface (SYS-REQ-028e/028j)', () => {
       expect(allowedPublicMethods.has(name)).toBe(true);
     }
     expect(actualMethods.sort()).toEqual([...allowedPublicMethods].sort());
+  });
+});
+
+describe('SessionWrapper never allows bash on the host (README goal 0: run_terminal_docker replaces bash)', () => {
+  it('throws at construction when bash is listed as a built-in', () => {
+    expect(() => new SessionWrapper(undefined, { builtins: ['view', 'bash'] })).toThrow(/'bash'.*run_terminal_docker/);
+  });
+
+  it('rejects every shell-kind permission request, even when a custom tool is named "shell"', async () => {
+    const wrapper = new SessionWrapper(undefined, { builtins: ['view', 'edit', 'grep', 'glob'], custom: [fakeTool('shell')] });
+    const config = wrapper._createConfig();
+
+    await expect(config.onPermissionRequest(shellRequest(), { sessionId: 's1' })).resolves.toMatchObject({
+      kind: 'reject',
+    });
+    await expect(config.onPermissionRequest(customToolRequest('shell'), { sessionId: 's1' })).resolves.toEqual({
+      kind: 'approve-once',
+    });
   });
 });
