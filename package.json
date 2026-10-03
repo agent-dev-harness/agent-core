@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
-    "description": "Copilot SDK session core: SessionWrapper, tool-call enforcement, audit sessions, provider registry, and the Docker/native workspace runners.",
+    "description": "Copilot SDK session core: SessionWrapper, forced tool turns, provider registry, and the Docker/native workspace runners.",
     "license": "MIT",
     "exports": {
         ".": {
