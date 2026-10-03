@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number | null };
 
@@ -34,6 +35,19 @@ export function shellQuotePath(p: string): string {
 export function prependWorkDir(command: string, dir: string, workspaceRoot: string): string {
   if (dir === workspaceRoot) return command;
   return `cd ${shellQuotePath(dir)} || exit 91\n${command}`;
+}
+
+export class OutputCollector {
+  private readonly decoder = new StringDecoder("utf8");
+  private text = "";
+
+  write(chunk: Buffer): void {
+    this.text += this.decoder.write(chunk);
+  }
+
+  finish(): string {
+    return this.text + this.decoder.end();
+  }
 }
 
 export function annotateTimeout(

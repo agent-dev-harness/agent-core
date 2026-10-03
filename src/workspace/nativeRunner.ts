@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputCollector, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 const FIXED_WORKSPACE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "app-"));
 
@@ -64,19 +64,19 @@ export async function runNativeProcess(
       });
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdout = new OutputCollector();
+    const stderr = new OutputCollector();
 
     child.stdout.on("data", (data) => {
-      stdout += data.toString();
+      stdout.write(data);
     });
     child.stderr.on("data", (data) => {
-      stderr += data.toString();
+      stderr.write(data);
     });
 
     child.on("close", (code) => {
        if (signal) signal.removeEventListener("abort", onAbort);
-       resolve({ stdout, stderr, exitCode: code });
+       resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
      });
 
     if (child.stdin.writable) {

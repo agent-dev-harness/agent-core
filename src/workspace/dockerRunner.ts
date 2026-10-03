@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputCollector, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -201,24 +201,24 @@ export async function runDockerProcess(
       });
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdout = new OutputCollector();
+    const stderr = new OutputCollector();
 
     child.stdout.on("data", (data) => {
-      stdout += data.toString();
+      stdout.write(data);
     });
     child.stderr.on("data", (data) => {
-      stderr += data.toString();
+      stderr.write(data);
     });
 
     child.on("close", (code) => {
       if (signal) signal.removeEventListener("abort", onAbort);
       if (killInitiated) {
         void containerCleanupPromise.then(() => {
-          resolve({ stdout, stderr, exitCode: code });
+          resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
         });
       } else {
-        resolve({ stdout, stderr, exitCode: code });
+        resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
       }
     });
     if (child.stdin.writable) {
