@@ -139,8 +139,30 @@ export async function runDockerProcess(
 
         try {
           // The host can't signal processes inside the container's PID namespace, so kill them
-          // there by run marker. The kill shell carries the marker too and skips itself ($$).
-          const killCmd = `for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do [ "$pid" = "$$" ] && continue; kill -9 "$pid" || echo "kill-failed pid=$pid" >&2; done`;
+          // there by run marker, plus their descendants, which may have dropped the marker
+          // (env -i). The kill shell carries the marker too and skips itself ($$).
+          const killCmd = [
+            "declare -A parent doomed",
+            "for stat in /proc/[0-9]*/stat; do",
+            '  read -r line 2>/dev/null <"$stat" || continue',
+            "  fields=(${line##*) })",
+            "  pid=${stat#/proc/}",
+            '  [ -n "${fields[1]}" ] && parent[${pid%/stat}]=${fields[1]}',
+            "done",
+            'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do',
+            '  [ "$pid" = "$$" ] || doomed[$pid]=1',
+            "done",
+            "added=1",
+            'while [ -n "$added" ]; do',
+            "  added=",
+            '  for pid in "${!parent[@]}"; do',
+            '    if [ -z "${doomed[$pid]}" ] && [ -n "${doomed[${parent[$pid]}]}" ]; then doomed[$pid]=1; added=1; fi',
+            "  done",
+            "done",
+            'for pid in "${!doomed[@]}"; do',
+            '  kill -9 "$pid" 2>/dev/null || [ ! -e "/proc/$pid" ] || echo "kill-failed pid=$pid" >&2',
+            "done",
+          ].join("\n");
           const killProc = spawn("docker", [
             "exec",
             "-e",

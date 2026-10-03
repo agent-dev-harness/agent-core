@@ -48,4 +48,6 @@ command is never killed.
 
 Both runners spawn detached and kill the whole process group. Docker mode also kills
 by an `EXEC_RUN_ID` marker inside the container, which the host can't reach through
-the group.
+the group, along with the descendants of marked processes, which may have dropped the
+marker (`env -i`). A process that drops the marker and also leaves its parent before
+the kill escapes.
