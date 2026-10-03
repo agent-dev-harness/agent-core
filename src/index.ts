@@ -26,7 +26,6 @@ export type {
 } from './copilotSdk/sessionWrapper';
 
 export {
-  FORCED_TOOL_TURN_HARD_TIMEOUT_MS,
   runForcedToolTurnUntilTimeout,
 } from './toolCallEnforcement';
 

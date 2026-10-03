@@ -188,7 +188,7 @@ export async function sendAndWaitWithAbort(
     ) {
       usageTelemetryLogCount++;
       if (ev.data && typeof ev.data === 'object') {
-        console.log(`[UsageTelemetry] auditor session ${JSON.stringify(ev.data)}`);
+        console.log(`[UsageTelemetry] session ${JSON.stringify(ev.data)}`);
       } else {
         console.error(
           `[sendAndWaitWithAbort] UNEXPECTED EVENT SHAPE: '${ev.type}' event has no usable 'data' object ` +
@@ -232,7 +232,7 @@ export async function sendAndWaitWithAbort(
   if (abortSignal) {
     racers.push(
       new Promise<never>((_, reject) => {
-        const onAbort = () => reject(new Error('Auditor session aborted by client or timeout'));
+        const onAbort = () => reject(new Error('Session aborted by client or timeout'));
         if (abortSignal.aborted) onAbort();
         else abortSignal.addEventListener('abort', onAbort, { once: true });
       }),
@@ -490,12 +490,9 @@ export async function runForcedToolTurn<T>(
   return { result: finalResult as T, session: currentWrapper.session as CopilotSession, lastAssistantText, toolCalled };
 }
 
-/**
- * Default hard timeout for `runForcedToolTurn`'s "no watchdog" successor,
- * `runForcedToolTurnUntilTimeout`. 60 minutes is generous headroom for a
- * legitimately long, healthy, reasoning-heavy turn.
- */
-export const FORCED_TOOL_TURN_HARD_TIMEOUT_MS = 60 * 60 * 1000; // 60 minutes
+// The SDK waits only 60s when no timeout is given, and Node clamps any timer
+// delay above 2^31-1 ms to 1 ms, so this is the closest to "no deadline".
+const NO_TURN_DEADLINE_MS = 2 ** 31 - 1;
 
 /**
  * Same options shape as `ForcedToolTurnOptions`, minus the stall-specific
@@ -535,7 +532,7 @@ export async function runForcedToolTurnUntilTimeout<T>(
   initialPrompt: string,
   opts: ForcedToolTurnUntilTimeoutOptions<T>
 ): Promise<{ result: T; session: CopilotSession; lastAssistantText: string; toolCalled: boolean }> {
-  const timeoutMs = opts.timeoutMs ?? FORCED_TOOL_TURN_HARD_TIMEOUT_MS;
+  const timeoutMs = opts.timeoutMs ?? NO_TURN_DEADLINE_MS;
   const maxRetries = opts.maxRetries ?? 2;
   const responseRequirements = opts.responseRequirements ?? {};
 
@@ -584,7 +581,7 @@ export async function runForcedToolTurnUntilTimeout<T>(
       ) {
         usageTelemetryLogCount++;
         if (ev.data && typeof ev.data === 'object') {
-          console.log(`[UsageTelemetry] auditor session ${JSON.stringify(ev.data)}`);
+          console.log(`[UsageTelemetry] session ${JSON.stringify(ev.data)}`);
         } else {
           console.error(
             `[runForcedToolTurnUntilTimeout] UNEXPECTED EVENT SHAPE: '${ev.type}' event has no usable 'data' object ` +
@@ -615,7 +612,7 @@ export async function runForcedToolTurnUntilTimeout<T>(
     if (opts.abortSignal) {
       racers.push(
         new Promise<never>((_, reject) => {
-          const onAbort = () => reject(new Error('Auditor session aborted by client or timeout'));
+          const onAbort = () => reject(new Error('Session aborted by client or timeout'));
           if (opts.abortSignal!.aborted) onAbort();
           else opts.abortSignal!.addEventListener('abort', onAbort, { once: true });
         }),

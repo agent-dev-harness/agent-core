@@ -37,7 +37,7 @@ Out of scope: model and role configuration. The caller passes these in.
 
 | Import | Contents |
 |---|---|
-| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`, `FORCED_TOOL_TURN_HARD_TIMEOUT_MS`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
 | `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `setActiveOpenRouterSessionId` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
@@ -85,9 +85,10 @@ npm install        # also builds dist/ via the prepare script
 npm run lint       # tsc, ESLint, check-explicit-any, boundary guard
 npm test           # vitest, one file at a time
 npm run build      # dist/: ESM bundles plus .d.ts
+npm run verify:docker  # Docker runner against a real, throwaway container
 ```
 
 Integration tests replay recorded model traffic through `test/harness/CapiProxy.ts`
 (see `docs/copilot-sdk-record-replay.md`). No test needs Docker or network access: the
-Docker runner tests mock `child_process`, so nothing in this repo checks the Docker
-runner against a real container.
+Docker runner tests mock `child_process`; `npm run verify:docker` checks the runner
+against a real container and needs a running Docker daemon.

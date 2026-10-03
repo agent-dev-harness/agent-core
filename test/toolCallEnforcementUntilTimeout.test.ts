@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { runForcedToolTurnUntilTimeout, FORCED_TOOL_TURN_HARD_TIMEOUT_MS } from '../src/toolCallEnforcement';
+import { runForcedToolTurnUntilTimeout } from '../src/toolCallEnforcement';
 import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 
 function makeWrapper(client: unknown, toolNames: string[] = ['my_tool']): SessionWrapper {
@@ -91,7 +91,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(timeout).toBe(42);
   });
 
-  it('defaults timeoutMs to FORCED_TOOL_TURN_HARD_TIMEOUT_MS (60 min) when unset', async () => {
+  it('sets no turn deadline when timeoutMs is unset: passes the largest timer delay Node allows, not the SDK default', async () => {
     const mockSession = {
       sessionId: 's3',
       on: vi.fn().mockImplementation((handler) => {
@@ -110,11 +110,10 @@ describe('runForcedToolTurnUntilTimeout', () => {
       getResult: () => null,
     });
 
-    expect(FORCED_TOOL_TURN_HARD_TIMEOUT_MS).toBe(60 * 60 * 1000);
     expect(mockSession.sendAndWait).toHaveBeenCalledTimes(1);
     const [promptOpts, timeout] = mockSession.sendAndWait.mock.calls[0];
     expect(promptOpts.prompt).toContain('test prompt');
-    expect(timeout).toBe(FORCED_TOOL_TURN_HARD_TIMEOUT_MS);
+    expect(timeout).toBe(2 ** 31 - 1);
   });
 
   it('carries a caller-provided systemMessage through the nudge-retry resumeSession call, since resumeSession does not inherit it', async () => {
