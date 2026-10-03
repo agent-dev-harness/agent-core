@@ -194,7 +194,7 @@ function buildSystemPromptUpdateNotice(
 
 /**
  * `SessionWrapper` -- implements docs/SessionWrapper-spec.md's SYS-REQ-028
- * family (issue #352), which supersedes the tool-mutation and
+ * family, which supersedes the tool-mutation and
  * system-message parts of the earlier SYS-REQ-027 family. The core shift:
  * the wire-level `tools` schema sent to the SDK is now fixed at construction
  * and NEVER changes for the session's lifetime (SYS-REQ-028), including
@@ -267,7 +267,7 @@ export class SessionWrapper {
    * The `systemMessage` passed on session *creation*. Frozen the moment
    * `createSession` is called, and reused verbatim on every subsequent
    * `resumeSession` call (SYS-REQ-028g/028h) -- `resumeSession` does not
-   * inherit `systemMessage` from the session it's resuming (issue #208), so
+   * inherit `systemMessage` from the session it's resuming, so
    * this is what `sendAndWait()`'s resume branch re-sends. Also kept so
    * `_createConfig()`'s output (read by tests, or anything inspecting config
    * post-creation) never disagrees with what was actually sent at creation,
@@ -331,8 +331,8 @@ export class SessionWrapper {
    *
    * This is read-only exposure of a session the wrapper already created
    * itself -- not a way to inject config onto a session it didn't create --
-   * so it does not reopen the #327 "no side door" guarantee. As of #346,
-   * this getter is no longer needed for event-listener attachment (tool-call
+   * so it does not reopen the "no side door" guarantee (SYS-REQ-027g). This
+   * getter is no longer needed for event-listener attachment (tool-call
    * tracking, stall tracking, etc.) -- use the `listeners` parameter on
    * `sendAndWait()` instead, which subscribes/unsubscribes internally and
    * never hands the caller a `CopilotSession` reference. The getter remains
@@ -340,13 +340,13 @@ export class SessionWrapper {
    * (`.disconnect()`) rather than event observation -- see the TODO below,
    * which is now narrower than before but still open.
    */
-  // TODO(#78): audit flags SYS-REQ-028j tension: the spec text says any
+  // TODO: audit flags SYS-REQ-028j tension: the spec text says any
   // module other than SessionWrapper reading/writing the CopilotSession
-  // directly is a violation, with no read-only carve-out. As of #346, event-
-  // listener attachment no longer needs this getter (see `sendAndWait`'s
+  // directly is a violation, with no read-only carve-out. Event-listener
+  // attachment no longer needs this getter (see `sendAndWait`'s
   // `listeners` parameter, which subscribes internally). What remains is
-  // narrower: a few callers (gateLoop.ts, toolCallEnforcement.ts) still read
-  // this getter specifically to call `.disconnect()` on abort. Not resolving
+  // narrower: a few callers (toolCallEnforcement.ts, and callers outside this
+  // package) still read this getter specifically to call `.disconnect()` on abort. Not resolving
   // now per owner direction (spec modifications are forbidden without
   // sign-off) -- needs a decision on whether SYS-REQ-028j should be amended
   // to carve out this narrower disconnect-only case, or whether `disconnect`
@@ -357,29 +357,27 @@ export class SessionWrapper {
   }
 
   /**
-   * Adopts an already-created `CopilotSession` (e.g. from
-   * `createHardenedSession`) into a new `SessionWrapper`, so callers that
-   * must create their session through a `SessionPolicy` (audit-codebase.ts,
-   * run-issue-task.ts, gateLoop.ts's SYS-REQ-004 retry site -- see issue
-   * #359) can still use `runForcedToolTurn`/`runForcedToolTurnUntilTimeout`.
+   * Adopts an already-created `CopilotSession` into a new `SessionWrapper`,
+   * so a caller that had to create its session with its own permission
+   * gating can still use `runForcedToolTurn`/`runForcedToolTurnUntilTimeout`.
    *
    * This is an escape hatch, not a general-purpose constructor path: it
-   * exists only because `SessionWrapper` cannot itself express
-   * `SessionPolicy`'s `autoApprovedTools`/`onPermissionRequest` gating
-   * (that enforcement already happened at `createSession` time and is
-   * baked into `session`). `toolsConfig`/`baseConfig` must describe the
-   * SAME tool set the session was actually created with -- they are only
-   * used for this wrapper's own bookkeeping (`_allToolNames`,
+   * exists only because `SessionWrapper` cannot itself express a caller's
+   * own `autoApprovedTools`/`onPermissionRequest` gating (that enforcement
+   * already happened at `createSession` time and is baked into `session`).
+   * `toolsConfig`/`baseConfig` must describe the SAME tool set the session
+   * was actually created with -- they are only used for this wrapper's own
+   * bookkeeping (`_allToolNames`,
    * `enableTools`/`disableTools` restriction between nudge retries) and
    * for resend-on-resume (`_createConfig()`), not to re-derive permissions.
    *
    * `frozenSystemMessage` must be the exact `systemMessage` value sent at
-   * the session's original creation -- `resumeSession` does not inherit it
-   * (issue #208), so this is what every subsequent nudge/stall retry
+   * the session's original creation -- `resumeSession` does not inherit it,
+   * so this is what every subsequent nudge/stall retry
    * re-sends. Passing anything else silently drops the original prompt on
    * the first retry.
    *
-   * TODO(#78): audit flags SYS-REQ-028f tension: the spec states
+   * TODO: audit flags SYS-REQ-028f tension: the spec states
    * constructing a new `SessionWrapper` shall always result in
    * `client.createSession(...)`, never a resume, with resuming only
    * happening by reusing the wrapper instance that did the creating. This
@@ -654,8 +652,8 @@ export class SessionWrapper {
         // later) can silently omit or disable large-output handling by
         // winning the spread. Values match the SDK's own documented default
         // (LargeToolOutputConfig) -- set explicitly rather than left
-        // implicit, since the SDK's default is exactly what this app was
-        // already relying on without stating it (issue #467).
+        // implicit, since the SDK's default is exactly what this package was
+        // already relying on without stating it.
         largeOutput: { enabled: true, maxSizeBytes: 51200 },
       });
     } else {
@@ -675,7 +673,7 @@ export class SessionWrapper {
       // 028d-1 (the wire-level set is unchanged, just re-declared).
       //
       // `systemMessage` falls into that same carve-out, for a different
-      // reason (issue #208, see KNOWLEDGE.md "resumeSession() drops the system
+      // reason (see KNOWLEDGE.md "resumeSession() drops the system
       // prompt unless you re-pass it", and the docstring on
       // `CopilotClient.resumeSession` in boundary.ts): `resumeSession` does
       // NOT inherit `systemMessage` from the session being resumed -- the

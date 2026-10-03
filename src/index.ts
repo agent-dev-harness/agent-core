@@ -1,6 +1,5 @@
-// Public API of agentCore (docs/agent-core-extraction-plan.md, phase 3).
-// Exports only what the app actually imports; widen it only when a consumer
-// needs a symbol, since every export becomes a two-repo contract after the split.
+// Public API of agent-core. Widen it only when a consumer needs a symbol,
+// since every export is a contract with every consumer.
 export {
   CopilotClient,
   defineTool,

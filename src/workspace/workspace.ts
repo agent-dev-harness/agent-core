@@ -12,10 +12,10 @@ function getRunner() {
 
 /**
  * Factory for the shared GitSandbox singleton. The package default creates
- * the plain generic sandbox; the app passes its own factory (creating the
- * orchestration-side TaskGitSandbox subclass) so the singleton also carries
- * the task/PBI branch operations. Keeps agentCore free of app imports —
- * the app pushes its subclass in rather than agentCore reaching out.
+ * the plain generic sandbox; a caller can pass its own factory (creating a
+ * GitSandbox subclass, for example one with task-branch operations) so the
+ * singleton carries those too. Keeps agent-core free of caller imports —
+ * the caller pushes its subclass in rather than agent-core reaching out.
  */
 export type GitSandboxFactory = (
   workTree: string,
@@ -40,10 +40,9 @@ let _sandbox: GitSandbox | null = null;
  * Calling it a second time is a no-op — the existing sandbox is returned as-is.
  *
  * @param options.createSandbox Optional factory for the shared sandbox
- *   singleton. The app passes its TaskGitSandbox factory
- *   (src/orchestration/taskGitSandbox.ts) so the singleton carries the
- *   task/PBI branch operations; the package default creates the plain
- *   generic GitSandbox.
+ *   singleton, for a caller that subclasses GitSandbox (for example, to add
+ *   task-branch operations); the package default creates the plain generic
+ *   GitSandbox.
  */
 export async function initializeWorkspace(options?: { createSandbox?: GitSandboxFactory }): Promise<void> {
   if (_sandbox) return;

@@ -12,17 +12,17 @@ import {
 
 // Exercises SessionWrapper (src/copilotSdk/sessionWrapper.ts) against a REAL
 // CopilotClient/CopilotSession talking to the CapiProxy harness described in
-// docs/copilot-sdk-record-replay.md, per issue #332. The proxy (ReplayingCapiProxy)
+// docs/copilot-sdk-record-replay.md. The proxy (ReplayingCapiProxy)
 // only mocks the LLM completions boundary (CopilotClient -> CAPI) -- session
 // create/resume, tool-permission enforcement, and config re-derivation all
 // run for real against the SDK. Nothing here asserts against an assumed SDK
 // contract; it asserts against what the live SDK actually does, which is
-// exactly what #328's black-box unit tests (mocked session/client doubles)
-// cannot catch.
+// exactly what the black-box unit tests in sessionWrapper.test.ts (mocked
+// session/client doubles) cannot catch.
 //
 // Snapshot YAMLs live in test/snapshots/session_wrapper/. See that
 // directory's naming for which test each file backs.
-describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
+describe('SessionWrapper against the live Copilot SDK', () => {
   let proxy: CapiProxy;
   let proxyUrl: string;
   let tmpWorkDir: string;
@@ -64,7 +64,7 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
     });
   }
 
-  // Handler-backed custom Tool for issue #345 coverage: reads the real
+  // Handler-backed custom Tool for custom-tool dispatch coverage: reads the real
   // seeded file from tmpWorkDir, so a successful dispatch produces output
   // ("hello from the real filesystem") that couldn't appear unless the SDK
   // actually invoked this handler -- the same "real output leaked/didn't
@@ -197,7 +197,7 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
 
   // Scope item 3 (SYS-REQ-027d): resume config re-derivation against a live
   // session. Mutates `_tools`/`_systemPrompt` between two `sendAndWait()`
-  // calls on the same instance. Per #345, `systemMessage` itself must now
+  // calls on the same instance. `systemMessage` itself must now
   // stay frozen across resumes (to protect the prompt/KV cache prefix) --
   // the tool-list/system-prompt mutation instead shows up as (a) the
   // re-derived `availableTools`/permission outcome, still fully live per
@@ -211,7 +211,8 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
   // `${user}` as wildcards that skip content matching entirely. It has no
   // dependency on what SessionWrapper actually puts in `systemMessage`, so
   // it needs no update -- and no live CAPI endpoint, ever -- when that
-  // content's shape changes, including the #345 fix this test exercises.
+  // content's shape changes, including the frozen-systemMessage fix this
+  // test exercises.
   it('freezes systemMessage across resume; tool/prompt mutations surface via availableTools and an appended notice instead', { timeout: 30000 }, async () => {
     const snapshotPath = path.resolve(
       process.cwd(),
@@ -249,7 +250,7 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
 
       // SYS-REQ-028g/h: the second request's systemMessage IS resent on
       // resume (byte-identical to creation, since resumeSession does not
-      // inherit it -- issue #208), so it stays identical to what creation
+      // inherit it), so it stays identical to what creation
       // sent regardless of what `_systemPrompt` changed to afterward.
       expect(secondSystem).toBe(firstSystem);
 
@@ -381,7 +382,7 @@ describe('SessionWrapper against the live Copilot SDK (Issue #332)', () => {
     }
   });
 
-  // Issue #345, scope item 1: a handler-backed custom Tool added via
+  // A handler-backed custom Tool added via
   // `addTool` is (a) offered to the model in `availableTools`/the derived
   // tool-usage system-prompt section on the same footing as a built-in, and
   // (b) actually dispatched by the live SDK -- not just auto-approved in

@@ -3,10 +3,10 @@ import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from "./workspace";
 
 /**
  * Shared boundary between the `run_terminal_docker` tool arguments (LLM
- * supplied) and the workspace exec runners. Both handlers
- * (`makeDockerToolHandler` and `makeRunTerminalDockerHandler`) funnel their
- * args through this module so the two entry points can't drift apart on
- * parsing, clamping, or output capping.
+ * supplied) and the workspace exec runners. Every handler for the tool
+ * (`makeRunTerminalDockerHandler` here, and any a caller writes, such as one
+ * that streams results) funnels its args through this module so the entry
+ * points can't drift apart on parsing, clamping, or output capping.
  */
 
 // Bash-tool parity: the model may extend the deadline per call, within the
@@ -26,7 +26,7 @@ export const DEFAULT_TIMEOUT_SECONDS = 60;
 // Cap on what a single exec tool result will feed back into the model
 // context. Without it, a chatty command (a test run with no pipe, a
 // runaway loop) streams megabytes straight into the conversation — the SDK
-// session configs in this app don't set `largeOutput`, so there is no
+// session configs this was written for didn't set `largeOutput`, so there is no
 // downstream truncation to absorb it.
 export const MAX_TOOL_OUTPUT_CHARS = 40_000;
 const TRUNCATE_HEAD_CHARS = 26_000;
@@ -84,15 +84,13 @@ export function buildExecOptions(parsed: ParsedExecToolArgs, workDir: string | u
 /**
  * Headless (non-SSE) handler for `run_terminal_docker`: a plain
  * request/response tool call, for sessions with no SSE stream to push
- * `tool.result` events onto (see `makeDockerToolHandler` in toolHandlers.ts,
- * which requires one).
+ * `tool.result` events onto.
  *
- * Routes through `getExecCommand()` (see SYS-REQ-020/023) exactly like the
- * SSE variant, so these sessions get the same GitSandbox locking,
- * GIT_TIMEOUT_MS/EXEC_TIMEOUT_MS enforcement, and Docker-vs-native routing
- * as every other centralized-workspace consumer, instead of falling back to
- * the copilot SDK's own default bash/view/edit tools operating directly on
- * `CopilotClient.workingDirectory` (issue #299).
+ * Routes through `getExecCommand()` (see SYS-REQ-023), so these sessions get
+ * the same GitSandbox locking, GIT_TIMEOUT_MS/EXEC_TIMEOUT_MS enforcement,
+ * and Docker-vs-native routing as every other workspace consumer, instead of
+ * falling back to the copilot SDK's own default bash/view/edit tools
+ * operating directly on `CopilotClient.workingDirectory`.
  */
 export function makeRunTerminalDockerHandler(abortSignal?: AbortSignal) {
   return async (args: unknown) => {

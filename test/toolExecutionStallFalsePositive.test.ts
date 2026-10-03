@@ -15,9 +15,9 @@ function makeWrapper(client: unknown, toolNames: string[] = ['my_tool']): Sessio
  * emitted while the tool is actually running. A model that legitimately
  * invokes a slow-but-healthy tool (e.g. `npx tsc`, `vitest`, a large `grep`)
  * for longer than STALL_TIMEOUT_MS will therefore have its turn killed and
- * restarted mid-investigation, exactly as seen on PR #136
- * (`lastEventType=session.usage_info` immediately after a burst of `bash`
- * calls).
+ * restarted mid-investigation. This was seen in real runs, with
+ * `lastEventType=session.usage_info` immediately after a burst of `bash`
+ * calls.
  *
  * This suite reproduces that failure mode deterministically: a tool starts
  * executing, the underlying `sendAndWait` call is still legitimately
@@ -59,7 +59,7 @@ describe('tool-execution silence misdiagnosed as stall', () => {
     const mockClient = { createSession: vi.fn().mockResolvedValue(session) } as any;
     const promise = sendAndWaitWithAbort(makeWrapper(mockClient), { prompt: 'hi' } as any, TOOL_EXECUTION_DURATION_MS + 60000);
 
-    // Fixed behavior (issue #188/#191): the watchdog now knows a tool is
+    // Fixed behavior: the watchdog now knows a tool is
     // actively running and suspends the silence check for that span, so no
     // stall is ever raised even though STALL_TIMEOUT_MS elapses mid-execution.
     const assertion = expect(promise).resolves.toBeUndefined();

@@ -75,10 +75,10 @@ describe('execCommand timeout handling (native runner)', () => {
   });
 });
 
-describe('makeRunTerminalDockerHandler deadline enforcement (PR #465 regression)', () => {
-  // Reproduces the production call shape: gateLoop always passes a
-  // session-scoped AbortController.signal that only fires on session
-  // teardown, never on a timer (see gateLoop.ts:994, :1819). Before the
+describe('makeRunTerminalDockerHandler deadline enforcement', () => {
+  // Reproduces the production call shape: callers pass a session-scoped
+  // AbortController.signal that only fires on session teardown, never on a
+  // timer. Before the
   // execTool.ts fix, an omitted timeoutSeconds left opts.timeoutMs
   // undefined, so execWithDefaults took the "signal alone, no deadline"
   // branch and a hanging command was never killed — contradicting the

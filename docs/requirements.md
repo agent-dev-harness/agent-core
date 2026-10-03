@@ -102,7 +102,7 @@ with a single choke-point class, `SessionWrapper` (`src/copilotSdk/sessionWrappe
   its scope entirely rather than adoptable after the fact, so the point of entry stays
   singular. Open question: `SessionWrapper.adopt()` wraps a session the new wrapper did
   not create, which conflicts with this requirement and SYS-REQ-028f. It is tracked as
-  `TODO(#78)` in `sessionWrapper.ts` and waits on the owner's decision.
+  a `TODO` on `SessionWrapper.adopt()` and waits on the owner's decision.
 
 Tests for this section are in `src/copilotSdk/sessionWrapper.test.ts`: "SessionWrapper._createConfig"
 (027b), "construction/resume lifecycle" (026b, 027c), "systemMessage" and "per-turn

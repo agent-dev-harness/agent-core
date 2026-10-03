@@ -117,7 +117,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(timeout).toBe(FORCED_TOOL_TURN_HARD_TIMEOUT_MS);
   });
 
-  it('carries a caller-provided systemMessage through the nudge-retry resumeSession call (issue #208 regression)', async () => {
+  it('carries a caller-provided systemMessage through the nudge-retry resumeSession call, since resumeSession does not inherit it', async () => {
     const mockSession = {
       sessionId: 'test-session',
       on: vi.fn().mockReturnValue(vi.fn()),
@@ -143,7 +143,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(mockClient.resumeSession).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the full construction-time tool set (not narrowed to targetTools) as availableTools across a nudge-retry resume (issue #299 regression)', async () => {
+  it('preserves the full construction-time tool set (not narrowed to targetTools) as availableTools across a nudge-retry resume', async () => {
     const mockSession = {
       sessionId: 'test-session',
       on: vi.fn().mockReturnValue(vi.fn()),
@@ -172,7 +172,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(mockClient.resumeSession).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps a non-target construction-time tool (e.g. run_terminal_docker) enabled across a nudge-retry resume, not just the forced target tool (issue #299 regression)', async () => {
+  it('keeps a non-target construction-time tool (e.g. run_terminal_docker) enabled across a nudge-retry resume, not just the forced target tool', async () => {
     const mockSession = {
       sessionId: 'test-session',
       on: vi.fn().mockReturnValue(vi.fn()),

@@ -84,7 +84,7 @@ export class CopilotClient extends BaseCopilotClient {
    * systemMessage from the session being resumed, so any caller building a
    * resumeConfig must explicitly re-pass systemMessage or silently lose it.
    * See KNOWLEDGE.md ("resumeSession() drops the system prompt unless you
-   * re-pass it") for the general rule and issue #208 for the original bug.
+   * re-pass it") for the general rule and the original bug.
    */
   override async resumeSession(
     sessionId: string,

@@ -4,7 +4,7 @@ import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 
 /**
  * Builds a fresh (un-adopted) wrapper around `client`, mirroring how a
- * caller constructs one for a forced tool turn (issue #77/#359) -- `_session` is
+ * caller constructs one for a forced tool turn -- `_session` is
  * unset, so the turn's first `sendAndWait` always goes through
  * `client.createSession()`, and only subsequent nudge/stall-retry turns go
  * through `client.resumeSession()`. `toolNames` must include every tool
@@ -294,7 +294,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
         maxRetries: 0,
         maxStallRetries: 2,
         getResult: () => ({ ok: true }),
-        // Replaces the pre-#346 `freshSessionConfig` raw-config option:
+        // Replaces the earlier `freshSessionConfig` raw-config option:
         // the caller now supplies a factory that builds a brand-new
         // `SessionWrapper` (itself un-adopted, so its first `sendAndWait`
         // also goes through `client.createSession()`).
@@ -328,7 +328,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
       expect(onSessionId).toHaveBeenCalledWith('session-3'); // fresh session
 
       // Every abandoned session must be disconnected -- otherwise each
-      // stall retry leaks a live session/connection (issue #186).
+      // stall retry leaks a live session/connection.
       expect(initialSession.disconnect).toHaveBeenCalledTimes(1);
       expect(resumedSession.disconnect).toHaveBeenCalledTimes(1);
     });
@@ -372,7 +372,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
       expect(mockClient.createSession).toHaveBeenCalledTimes(2);
     });
 
-    it('preserves the session via resumeSession on the first stall, avoiding history loss (issue #185/#192)', async () => {
+    it('preserves the session via resumeSession on the first stall, avoiding history loss', async () => {
       let sessionCount = 0;
       const sentPromptOpts: any[] = [];
 
@@ -392,7 +392,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
             if (stalls) {
               // Before the stall, the model already ran a couple of
               // non-target investigative tool calls (e.g. `view`) --
-              // exactly the scenario from PR #136 where a stall late in
+              // the scenario seen in real runs, where a stall late in
               // a long investigation throws away everything done so far.
               emit({ type: 'tool.execution_start', data: { toolName: 'view' } });
               emit({ type: 'tool.execution_complete', data: { toolName: 'view' } });
@@ -480,7 +480,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
       expect(mockClient.createSession).toHaveBeenCalledTimes(1);
 
       // The abandoned (stalled) session must be disconnected -- otherwise
-      // each stall retry leaks a live session/connection (issue #186).
+      // each stall retry leaks a live session/connection.
       expect(initialSession.disconnect).toHaveBeenCalledTimes(1);
     });
 
@@ -588,7 +588,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
     });
   });
 
-  describe('sendAndWaitWithAbort diagnostic logging (Issue #180)', () => {
+  describe('sendAndWaitWithAbort diagnostic logging', () => {
     let logSpy: ReturnType<typeof vi.spyOn>;
     let warnSpy: ReturnType<typeof vi.spyOn>;
     let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -778,7 +778,7 @@ describe('Upstream stall detection & retry (review-pr.ts stall-retry follow-up)'
         }),
       } as any;
 
-      // gateLoop.ts's clarity-check/classification callers pass short,
+      // Callers doing quick checks (classification, for example) pass short,
       // genuinely-hard deadlines (20s/30s) below STALL_TIMEOUT_MS and rely
       // on them firing before stall detection would ever engage -- these
       // must NOT be raised, or a real hang goes from failing in ~20-30s to

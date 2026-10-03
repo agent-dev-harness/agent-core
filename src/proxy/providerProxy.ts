@@ -3,27 +3,22 @@ import type { Express } from 'express';
 
 /**
  * Provider proxy route: the single-session-standalone HTTP fan-out to
- * OpenRouter / Anthropic / OpenAI / Gemini. This is part of `agentCore`
- * because it's needed to run a single agent session on its own (e.g.
- * scripts/review-pr.ts spins up its own dedicated instance of this proxy) --
- * it is not orchestration-across-sessions logic.
+ * OpenRouter / Anthropic / OpenAI / Gemini. This is part of agent-core
+ * because it's needed to run a single agent session on its own (a script
+ * can spin up its own dedicated instance of this proxy) -- it is not
+ * orchestration-across-sessions logic.
  *
- * Extracted out of `orchestration/serverRuntime.ts`, which previously
- * defined this route (and its module-level state) directly on the shared
- * Express `app` at module load time. `mountProviderProxyRoute` now takes
- * that `app` as a parameter so `orchestration/serverRuntime.ts` wires it in
- * via a real import/mount, rather than sharing module scope with it.
+ * `mountProviderProxyRoute` takes the caller's Express `app` as a parameter
+ * rather than defining the route on a shared app at module load time.
  *
- * `agentCore` must never import from `orchestration`, so logging is taken
- * as an injected dependency (`writeLog`) rather than imported directly from
- * `orchestration/orchestrator/sessionState`. The boundary guard
- * (scripts/check-agentcore-boundary.ts) now enforces this mechanically.
+ * agent-core must never import caller code, so logging is taken as an
+ * injected dependency (`writeLog`). The boundary guard
+ * (scripts/check-boundary.ts) enforces this mechanically.
  *
- * This file lives in its own `proxy/` subdirectory (extraction plan phase
- * 2c) because it is the only agentCore module that touches `express` —
- * the future package exposes it as the `./proxy` subpath with `express` as
- * an optional peer dependency. The import above is type-only, so nothing
- * loads at runtime.
+ * This file lives in its own `proxy/` subdirectory because it is the only
+ * agent-core module that touches `express` — the package exposes it as the
+ * `./proxy` subpath with `express` as an optional peer dependency. The
+ * import above is type-only, so nothing loads at runtime.
  */
 
 /**
@@ -75,7 +70,7 @@ export function setActiveOpenRouterSessionId(sessionId: string | undefined) {
 let hasLoggedProviderToolsForCurrentSession = false;
 
 export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) => void) {
-  // Generic adapter registry route for model providers (SYS-REQ-004 & SYS-REQ-005)
+  // Generic adapter registry route for model providers
   app.all('/api/providers/:provider/*', (req, res) => {
     let bodyData = '';
     req.on('data', chunk => bodyData += chunk);

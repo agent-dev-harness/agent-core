@@ -31,7 +31,7 @@ describe('parseExecToolArgs', () => {
     expect(parseExecToolArgs({ command: 'x', timeoutSeconds: '120' }).timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
   });
 
-  // Regression test for the PR #465 review finding: the schema promises
+  // Regression test for a review finding: the schema promises
   // "Commands are killed after 60s unless timeoutSeconds is given," but both
   // production handlers (makeDockerToolHandler, makeRunTerminalDockerHandler)
   // always pass their own session-scoped AbortSignal (fires on session abort

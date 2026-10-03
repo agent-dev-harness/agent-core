@@ -149,8 +149,8 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
   });
 });
 
-describe('SessionWrapper permission-kind derivation (issue #277 regression coverage, ported per #347)', () => {
-  // Regression coverage for issue #277: `availableTools` (wire names) and the
+describe('SessionWrapper permission-kind derivation (regression coverage)', () => {
+  // Regression coverage: `availableTools` (wire names) and the
   // permission-request `kind` the SDK reports for built-ins are two
   // different namespaces, and a caller who conflates them gets every
   // built-in tool call silently rejected. `hardenedSession.ts`'s
@@ -160,7 +160,7 @@ describe('SessionWrapper permission-kind derivation (issue #277 regression cover
   // `BUILTIN_TOOL_PERMISSION_KIND`, unexported) via `_createConfig()`'s
   // `onPermissionRequest`, so this ports the same assertions onto that
   // surface: constructing a wrapper with a single built-in and asserting its
-  // *kind*-shaped request is approved, matching #277's "wire name maps to
+  // *kind*-shaped request is approved, matching the "wire name maps to
   // kind" table one entry at a time (avoids the deliberate
   // multiple-siblings-share-a-kind collision behavior covered separately by
   // 'rejects a real "grep" tool call ...' in sessionWrapper.integration.test.ts).
@@ -296,7 +296,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     // systemMessage IS resent on resume: `resumeSession` does not inherit it
     // from the session being resumed (KNOWLEDGE.md, "resumeSession() drops the
     // system prompt unless you re-pass it"; boundary.ts docstring on
-    // `CopilotClient.resumeSession`; issue #208). Omitting it here would
+    // `CopilotClient.resumeSession`). Omitting it here would
     // silently fall back to the SDK's default system prompt for the rest of
     // the turn.
     expect(Object.keys(resumeConfig ?? {}).sort()).toEqual([
@@ -340,7 +340,7 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
     expect(createCalls[0]?.systemMessage?.mode).toBe('customize');
     expect(createCalls[0]?.systemMessage?.content).toContain('you are an auditor');
     // `resumeSession` does not inherit `systemMessage` from the session
-    // being resumed (issue #208 / KNOWLEDGE.md) -- it falls into the same
+    // being resumed (KNOWLEDGE.md) -- it falls into the same
     // "SDK requires it re-sent" carve-out as `tools`/`availableTools`, so it
     // must be resent here byte-identical to what creation sent, frozen for
     // the session's life (SYS-REQ-028l).
@@ -513,12 +513,12 @@ describe('SessionWrapper: misc lifecycle errors', () => {
   });
 });
 
-// NOTE: adopt() is a transitional mechanism (issue #358), not a permanent
+// NOTE: adopt() is a transitional mechanism, not a permanent
 // spec-sanctioned feature -- see the docstring on SessionWrapper.adopt().
 // These tests lock down its behavior while it's in use, not because it's
 // meant to be a lasting pattern; they should be revisited/retired alongside
 // adopt() once the raw-session call sites it unblocks are migrated.
-describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session path)', () => {
+describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => {
   function frozenSystemMessage(content: string): SessionConfig['systemMessage'] {
     return { mode: 'customize', content };
   }
@@ -641,7 +641,7 @@ describe('SessionWrapper.adopt (issue #358: transitional caller-owned-session pa
   });
 });
 
-describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m, issue #467)', () => {
+describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m)', () => {
   it('sends the locked-down largeOutput config on create', async () => {
     const { client, createCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
@@ -675,9 +675,9 @@ describe('SessionWrapper side-door surface (SYS-REQ-028e/028j)', () => {
       'setSystemPrompt',
       'setModelName',
       'sendAndWait',
-      // Read-only view of the wrapper's own live session (issue #359) --
+      // Read-only view of the wrapper's own live session --
       // exposes no way to bind policy/config to a session the wrapper did
-      // not create, so it doesn't reopen the #327 "no side door" guarantee.
+      // not create, so it doesn't reopen the "no side door" guarantee (SYS-REQ-027g).
       // See the getter's docstring in sessionWrapper.ts.
       'session',
     ]);

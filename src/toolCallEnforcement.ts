@@ -41,9 +41,9 @@ export function trackLastAssistantMessage(session: CopilotSession): { readonly g
 /**
  * How long to tolerate total silence from the SDK (no events of any kind)
  * before treating the current send as a stalled upstream stream rather than
- * a genuine timeout. Matches the watchdog gateLoop.ts uses for the same
- * failure mode (upstream provider issues a tool call, or nothing at all,
- * and then the connection just idles with no session.error ever emitted).
+ * a genuine timeout. The failure mode it targets: the upstream provider
+ * issues a tool call, or nothing at all, and then the connection just idles
+ * with no session.error ever emitted.
  */
 export const STALL_TIMEOUT_MS = 90000;
 const STALL_POLL_INTERVAL_MS = 5000;
@@ -77,12 +77,12 @@ function isStallError(err: unknown): err is StallError {
  * inside a tool call -- between `tool.execution_start` and
  * `tool.execution_complete`, the only events bookending it -- as *not*
  * silence: a slow-but-healthy tool must not be mistaken for a dead upstream
- * connection (issues #188/#191, reproduced on PR #136).
+ * connection.
  *
  * Currently only consumed by the dormant `sendAndWaitWithAbort` stall
  * watchdog below. Pulled out as a standalone, documented utility so the
  * pattern is easy to find and reuse if a genuine stall is ever observed
- * independently of turn duration (issue #207). Callers feed events in via
+ * independently of turn duration. Callers feed events in via
  * `recordEvent`.
  */
 export function createExecutionAwareSilenceTracker() {
@@ -115,8 +115,8 @@ export function createExecutionAwareSilenceTracker() {
  * retry by itself -- callers (`runForcedToolTurn`) decide whether/how to
  * retry on a stall.
  *
- * Takes a `SessionWrapper` rather than a raw `CopilotSession` (issue #346):
- * the wrapper decides create-vs-resume internally, so the stall tracker's
+ * Takes a `SessionWrapper` rather than a raw `CopilotSession`: the wrapper
+ * decides create-vs-resume internally, so the stall tracker's
  * listener is passed in as one of `SessionWrapper.sendAndWait`'s `listeners`
  * -- subscribed internally by the wrapper right after the (possibly
  * brand-new, on resume) underlying session is created, before the prompt is
@@ -142,8 +142,8 @@ export function createExecutionAwareSilenceTracker() {
  * `runForcedToolTurn`'s listener closures below, which exists specifically
  * to neutralize this. The previous implementation unsubscribed immediately
  * on any race outcome; this is a minor behavior change traded for removing
- * all listener-lifetime bookkeeping from this function, matching #346's
- * simplified sendAndWait contract (nothing persists past one call, no
+ * all listener-lifetime bookkeeping from this function, matching
+ * `SessionWrapper.sendAndWait`'s contract (nothing persists past one call, no
  * manual reattachment/cleanup needed by callers) -- but it does shift the
  * burden of staleness-safety for stateful listeners onto the caller.
  *
@@ -284,7 +284,7 @@ export interface ForcedToolTurnOptions<T> {
    * When provided, a stall recovery whose first (resume-preserving-history)
    * attempt itself stalls abandons the wrapper it's holding and calls this
    * to construct a brand-new `SessionWrapper` instead of continuing to
-   * resume -- replaces the pre-#346 `freshSessionConfig` option, which
+   * resume -- replaces the earlier `freshSessionConfig` option, which
    * created a second raw `CopilotSession` directly. Because a fresh
    * `SessionWrapper` has no conversation history, recovery always restarts
    * from `initialPrompt` rather than replaying whatever prompt was in
@@ -509,13 +509,14 @@ export type ForcedToolTurnUntilTimeoutOptions<T> = Omit<
 
 /**
  * Successor to `runForcedToolTurn` for callers that don't need stall
- * recovery (issue #207). Keeps the tool-not-called nudge/retry loop
+ * recovery: a long, silent turn can't be told apart from a stall, so the
+ * watchdog misfired on healthy turns (see KNOWLEDGE.md). Keeps the tool-not-called nudge/retry loop
  * unchanged, but replaces the idle-silence watchdog and mid-turn
  * stall-recovery ladder with a single hard timeout racing
  * `wrapper.sendAndWait` directly.
  *
  * Takes a `SessionWrapper` instead of a raw `CopilotSession` +
- * `executionConfig` (issue #346): the wrapper owns the session's entire
+ * `executionConfig`: the wrapper owns the session's entire
  * lifecycle (create vs. resume), so this function's internal nudge-retry
  * calls `wrapper.sendAndWait(...)` and mutates the wrapper's enabled-tool
  * subset (`enableTools`/`disableTools`) instead of building a fresh
