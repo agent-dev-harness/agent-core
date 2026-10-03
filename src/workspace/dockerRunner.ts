@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, OutputCollector, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -87,6 +87,7 @@ export async function runDockerProcess(
   command: string,
   signal?: AbortSignal,
   workDir?: string,
+  outputLimit?: OutputLimit,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
     const workspaceRoot = getWorkspaceHostLocationOrThrow();
@@ -201,8 +202,8 @@ export async function runDockerProcess(
       });
     });
 
-    const stdout = new OutputCollector();
-    const stderr = new OutputCollector();
+    const stdout = new OutputCollector(outputLimit);
+    const stderr = new OutputCollector(outputLimit);
 
     child.stdout.on("data", (data) => {
       stdout.write(data);
