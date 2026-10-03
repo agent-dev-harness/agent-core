@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const IMAGE = process.env.VERIFY_DOCKER_IMAGE ?? 'debian:bookworm-slim';
 
@@ -26,6 +27,26 @@ function processesRunning(containerName: string, command: string): string {
     'for p in /proc/[0-9]*; do cmd=$(tr "\\0" " " < "$p/cmdline" 2>/dev/null); ' +
     `case "$cmd" in "${command} "*) echo "$p $cmd";; esac; done`;
   return docker('exec', containerName, 'bash', '-c', script);
+}
+
+// The runner caches its container and workspace settings per process, so a
+// misconfiguration is probed in a fresh child process.
+function probeInChild(env: Record<string, string>): string {
+  const result = spawnSync('npx', ['tsx', fileURLToPath(import.meta.url), '--probe'], {
+    encoding: 'utf8',
+    env: { ...process.env, ...env, NODE_ENV: '', VITEST: '', AI_STUDIO: '' },
+  });
+  return `${result.stdout}${result.stderr}`;
+}
+
+async function probe(): Promise<void> {
+  const { execCommand } = await import('../../src/workspace/dockerRunner');
+  try {
+    const result = await execCommand('true');
+    console.log(`RESOLVED ${JSON.stringify(result)}`);
+  } catch (error) {
+    console.log(`REJECTED ${(error as Error).message}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -68,6 +89,45 @@ async function main(): Promise<void> {
       wrote,
     );
 
+    const mixed = await handler({ command: 'echo out; echo err >&2; exit 3' });
+    check(
+      'passes stdout, stderr and the exit code through',
+      mixed.exitCode === 3 && mixed.stdout.trim() === 'out' && mixed.stderr.trim() === 'err',
+      mixed,
+    );
+
+    const big = await handler({ command: "head -c 100000 /dev/zero | tr '\\0' a" });
+    check(
+      'truncates very large output',
+      big.exitCode === 0 && big.stdout.length < 100000 && big.stdout.includes('Output truncated'),
+      { exitCode: big.exitCode, length: big.stdout.length },
+    );
+
+    const concurrentStart = Date.now();
+    const [first, second] = await Promise.all([
+      handler({ command: 'sleep 2; echo first' }),
+      handler({ command: 'sleep 2; echo second' }),
+    ]);
+    check(
+      'runs commands concurrently without mixing their output',
+      first.stdout.trim() === 'first' && second.stdout.trim() === 'second' && Date.now() - concurrentStart < 3900,
+      { first, second, elapsedMs: Date.now() - concurrentStart },
+    );
+
+    const unmounted = probeInChild({ CONTAINER_NAME: containerName, WORKSPACE_HOST_LOCATION: '/not/mounted/here' });
+    check(
+      'refuses to run when the workspace path is not mounted in the container',
+      unmounted.includes('REJECTED') && unmounted.includes('does not exist inside container'),
+      unmounted,
+    );
+
+    const noContainer = probeInChild({ CONTAINER_NAME: `${containerName}-missing`, WORKSPACE_HOST_LOCATION: workspace });
+    check(
+      'refuses to run when the container does not exist',
+      noContainer.includes('REJECTED') && noContainer.includes('Ensure the container is running'),
+      noContainer,
+    );
+
     docker('exec', '-d', containerName, 'sleep', '34');
     await new Promise((resolve) => setTimeout(resolve, 500));
     check('the leftover-process search finds a running process', processesRunning(containerName, 'sleep 34') !== '', null);
@@ -98,7 +158,7 @@ async function main(): Promise<void> {
   console.log('\nAll Docker runner checks passed.');
 }
 
-main().catch((error: unknown) => {
+(process.argv.includes('--probe') ? probe() : main()).catch((error: unknown) => {
   console.error(error);
   process.exit(1);
 });
