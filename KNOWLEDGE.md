@@ -31,13 +31,12 @@ directory and process-level state.
   message and busts the prompt cache, which is why `SessionWrapper` fixes both at
   construction and enables tools through permissions instead.
 
-## Stall watchdog
+## Stall detection
 
-`runForcedToolTurn`, `sendAndWaitWithAbort` and the silence tracker were built to recover
-from dead upstream connections. Every investigated case was a slow but healthy turn
-(long reasoning, or many tool calls), and the SDK gives no signal that tells the two
-apart. `runForcedToolTurnUntilTimeout` replaced it and is what callers use; the watchdog
-code is unused.
+A watchdog that treated SDK silence as a dead connection was tried and removed. Every
+investigated "stall" was a slow but healthy turn (long reasoning, or many tool calls),
+and the SDK gives no signal that tells the two apart. It is in git history before
+`runForcedToolTurnUntilTimeout` became the only forced-turn function.
 
 ## run_terminal_docker
 
