@@ -49,9 +49,10 @@ export type SessionListenerEntry =
  * The full, fixed tool set for a session's lifetime (SYS-REQ-028/028a). This
  * is the ONLY place a tool schema can be declared -- there is no
  * post-construction method that adds a tool absent here. `builtins` are
- * SDK-native wire names (e.g. `bash`, `view`); omitting a built-in here
+ * SDK-native wire names (e.g. `view`, `edit`); omitting a built-in here
  * excludes it for the session's lifetime (SYS-REQ-028a-1) -- there is no
- * separate runtime exclusion mechanism. `custom` are handler-backed `Tool`
+ * separate runtime exclusion mechanism. `bash` is never allowed: it runs
+ * on the host, and `run_terminal_docker` replaces it. `custom` are handler-backed `Tool`
  * objects this instance dispatches itself.
  */
 export interface SessionWrapperToolsConfig {
@@ -86,7 +87,6 @@ export interface SessionWrapperToolsConfig {
  * tool in disguise.
  */
 const BUILTIN_TOOL_PERMISSION_KIND: Readonly<Record<string, string>> = {
-  bash: 'shell',
   view: 'read',
   edit: 'write',
   grep: 'read',
@@ -300,6 +300,11 @@ export class SessionWrapper {
     private readonly _baseConfig: SessionWrapperBaseConfig = {}
   ) {
     const builtins = [...(toolsConfig.builtins ?? [])];
+    if (builtins.includes('bash')) {
+      throw new Error(
+        "SessionWrapper: the built-in 'bash' tool runs on the host and is not allowed; use run_terminal_docker instead."
+      );
+    }
     const customEntries: [string, Tool][] = (toolsConfig.custom ?? []).map((tool) => [tool.name, tool]);
     this._customTools = new Map(customEntries);
     this._allToolNames = [...builtins, ...this._customTools.keys()];
@@ -498,6 +503,12 @@ export class SessionWrapper {
     req: PermissionRequest,
     _invocation: { sessionId: string }
   ): Promise<PermissionRequestResult> => {
+    if (req.kind === 'shell') {
+      return {
+        kind: 'reject',
+        feedback: 'Shell commands on the host are not allowed. Use run_terminal_docker instead.',
+      };
+    }
     const requestedTool = extractRequestedToolName(req);
     const siblings = this._kindSiblings.get(requestedTool);
     const isApproved =
