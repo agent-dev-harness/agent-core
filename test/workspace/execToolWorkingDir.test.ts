@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from '../../src/workspace';
+import { getExecCommand, getWorkspaceRoot, resolveWorkDir, selectWorkspaceRunner } from '../../src/workspace';
 import { makeRunTerminalDockerHandler } from '../../src/execTool';
 
+selectWorkspaceRunner('native');
 const ROOT = getWorkspaceRoot();
 const execCommand = getExecCommand();
 

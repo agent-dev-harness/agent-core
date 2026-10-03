@@ -34,7 +34,7 @@ function processesRunning(containerName: string, command: string): string {
 function probeInChild(env: Record<string, string>): string {
   const result = spawnSync('npx', ['tsx', fileURLToPath(import.meta.url), '--probe'], {
     encoding: 'utf8',
-    env: { ...process.env, ...env, NODE_ENV: '', VITEST: '', AI_STUDIO: '' },
+    env: { ...process.env, ...env },
   });
   return `${result.stdout}${result.stderr}`;
 }
@@ -58,15 +58,12 @@ async function main(): Promise<void> {
   try {
     process.env.CONTAINER_NAME = containerName;
     process.env.WORKSPACE_HOST_LOCATION = workspace;
-    delete process.env.AI_STUDIO;
-    delete process.env.NODE_ENV;
-    delete process.env.VITEST;
 
     const { execCommand } = await import('../../src/workspace/dockerRunner');
     const { getExecCommand } = await import('../../src/workspace');
     const { makeRunTerminalDockerHandler } = await import('../../src/execTool');
 
-    check('getExecCommand selects the Docker runner', getExecCommand() === execCommand, null);
+    check('getExecCommand selects the Docker runner by default', getExecCommand() === execCommand, null);
 
     const handler = makeRunTerminalDockerHandler();
 
