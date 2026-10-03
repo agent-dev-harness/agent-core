@@ -1,6 +1,6 @@
 {
     "name": "@agent-dev-harness/agent-core",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "private": true,
     "type": "module",
     "description": "Copilot SDK session core: SessionWrapper, forced tool turns, provider registry, and the Docker/native workspace runners.",
