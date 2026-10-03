@@ -244,4 +244,36 @@ describe('runForcedToolTurnUntilTimeout', () => {
     await expect(runPromise).rejects.toThrow(/aborted/);
     expect(mockClient.resumeSession).not.toHaveBeenCalled();
   });
+
+  it('on timeout, only frees the caller: the turn is left running', async () => {
+    const mockSession = {
+      sessionId: 's5',
+      on: vi.fn().mockReturnValue(vi.fn()),
+      sendAndWait: vi.fn().mockRejectedValue(new Error('Timeout after 42ms waiting for session.idle')),
+      abort: vi.fn(),
+      disconnect: vi.fn(),
+    } as any;
+
+    const mockClient = {
+      createSession: vi.fn().mockResolvedValue(mockSession),
+      resumeSession: vi.fn(),
+      stop: vi.fn(),
+      forceStop: vi.fn(),
+      deleteSession: vi.fn(),
+    } as any;
+
+    await expect(
+      runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'test prompt', {
+        timeoutMs: 42,
+        getResult: () => null,
+      }),
+    ).rejects.toThrow(/Timeout after 42ms/);
+
+    expect(mockSession.abort).not.toHaveBeenCalled();
+    expect(mockSession.disconnect).not.toHaveBeenCalled();
+    expect(mockClient.stop).not.toHaveBeenCalled();
+    expect(mockClient.forceStop).not.toHaveBeenCalled();
+    expect(mockClient.deleteSession).not.toHaveBeenCalled();
+    expect(mockClient.resumeSession).not.toHaveBeenCalled();
+  });
 });
