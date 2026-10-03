@@ -3,23 +3,28 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { CapiProxy } from './harness/CapiProxy';
-import { executeAuditSession, ToolDefinition } from '../src/auditorHelper';
+import { CopilotClient } from '../src/copilotSdk/boundary';
+import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
+import { runForcedToolTurnUntilTimeout } from '../src/toolCallEnforcement';
 import { ProviderRegistry } from '../src/providerRegistry';
 
-// Exercises executeAuditSession's retry path (runForcedToolTurn -> resumeSession)
-// against a real CopilotClient talking to the CapiProxy harness described in
-// docs/copilot-sdk-record-replay.md, rather than a hand-mocked session/client. The
-// snapshot below is built so the first turn ends with plain assistant text
-// (no tool call), forcing exactly one resumeSession retry before the tool is
-// finally called on the second turn.
-describe('executeAuditSession retry against real SDK/proxy transport', () => {
-  let proxy: CapiProxy;
-  let proxyUrl: string;
-  const tmpWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-resume-'));
-  const systemPrompt = 'You are an auditor. Report findings via the tool.';
-  const userPrompt = 'Audit this change for security issues.';
-  const tool: ToolDefinition = {
-    function: {
+
+const SYSTEM_PROMPT = 'You are an auditor. Report findings via the tool.';
+const USER_PROMPT = 'Audit this change for security issues.';
+
+// Drives one forced tool turn the way a caller of this package would: its own
+// CopilotClient, a SessionWrapper with the submission tool, and
+// runForcedToolTurnUntilTimeout.
+async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promise<unknown> {
+  const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
+    provider: 'gemini',
+    model: 'gemini-3.1-flash-lite',
+  });
+  const client = new CopilotClient({ workingDirectory: workDir, logLevel: 'none', useLoggedInUser: false });
+  let result: unknown;
+  await client.start();
+  try {
+    const submitFinding = {
       name: 'submit_finding',
       description: 'Submit an audit finding',
       parameters: {
@@ -27,8 +32,40 @@ describe('executeAuditSession retry against real SDK/proxy transport', () => {
         properties: { pass: { type: 'boolean' } },
         required: ['pass'],
       },
-    },
-  };
+      handler: async (args: unknown) => {
+        result = args;
+        return { status: 'received' };
+      },
+    };
+    const wrapper = new SessionWrapper(
+      client,
+      { builtins: ['view', 'edit', 'grep', 'glob'], custom: [submitFinding] },
+      { ...(executionConfig.provider ? { provider: executionConfig.provider } : {}), streaming: false },
+    )
+      .setModelName(executionConfig.model)
+      .setSystemPrompt(SYSTEM_PROMPT);
+    const turn = await runForcedToolTurnUntilTimeout(wrapper, 'submit_finding', USER_PROMPT, {
+      timeoutMs: 30000,
+      maxRetries,
+      getResult: () => result,
+    });
+    await turn.session.disconnect();
+    return turn.result;
+  } finally {
+    await client.stop();
+  }
+}
+
+// Exercises runForcedToolTurnUntilTimeout's retry path (resumeSession)
+// against a real CopilotClient talking to the CapiProxy harness described in
+// docs/copilot-sdk-record-replay.md, rather than a hand-mocked session/client. The
+// snapshot below is built so the first turn ends with plain assistant text
+// (no tool call), forcing exactly one resumeSession retry before the tool is
+// finally called on the second turn.
+describe('forced tool turn retry against real SDK/proxy transport', () => {
+  let proxy: CapiProxy;
+  let proxyUrl: string;
+  const tmpWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-resume-'));
 
   beforeAll(async () => {
     proxy = new CapiProxy();
@@ -49,23 +86,7 @@ describe('executeAuditSession retry against real SDK/proxy transport', () => {
   }, 30000);
 
   it('does not mutate the original prompt prefix when resumeSession retries', { timeout: 30000 }, async () => {
-    const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
-      provider: 'gemini',
-      model: 'gemini-3.1-flash-lite',
-    });
-
-    const result = await executeAuditSession(
-      tmpWorkDir,
-      executionConfig,
-      systemPrompt,
-      tool,
-      userPrompt,
-      {},
-      undefined,
-      30000,
-      undefined,
-      1
-    );
+    const result = await runSubmitFindingTurn(tmpWorkDir, 1);
 
     // The tool was ultimately called (on the resumed turn), so a result was captured.
     expect(result).toBeTruthy();
@@ -84,7 +105,7 @@ describe('executeAuditSession retry against real SDK/proxy transport', () => {
     // against our raw input rather than exact equality against the
     // SDK-decorated message.
     const firstUserMessage = firstRequest.messages.find((m: any) => m.role === 'user');
-    expect(firstUserMessage.content).toContain(userPrompt);
+    expect(firstUserMessage.content).toContain(USER_PROMPT);
 
     // On the resumed request (post-resumeSession), the original user prompt
     // must still be present, in place, and byte-for-byte identical to what
@@ -117,6 +138,6 @@ describe('executeAuditSession retry against real SDK/proxy transport', () => {
     const nudgeMessage = secondRequest.messages[3];
     expect(nudgeMessage.role).toBe('user');
     expect(nudgeMessage.content).not.toBe(firstUserMessage.content);
-    expect(nudgeMessage.content).not.toContain(userPrompt);
+    expect(nudgeMessage.content).not.toContain(USER_PROMPT);
   });
 });

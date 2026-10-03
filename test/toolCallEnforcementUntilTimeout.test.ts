@@ -172,7 +172,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(mockClient.resumeSession).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps a non-target construction-time tool (e.g. run_terminal_docker) enabled across a nudge-retry resume, not just the forced target tool (issue #299 regression via auditorHelper.ts)', async () => {
+  it('keeps a non-target construction-time tool (e.g. run_terminal_docker) enabled across a nudge-retry resume, not just the forced target tool (issue #299 regression)', async () => {
     const mockSession = {
       sessionId: 'test-session',
       on: vi.fn().mockReturnValue(vi.fn()),
@@ -189,7 +189,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
       resumeSession: vi.fn().mockResolvedValue(mockSession),
     } as any;
 
-    // Mirrors auditorHelper.ts's wrapper construction: `run_terminal_docker`
+    // The usual wrapper construction for a forced tool turn: `run_terminal_docker`
     // is a construction-time custom tool alongside the forced target tool
     // (`my_tool`), not passed via `availableTools` to runForcedToolTurnUntilTimeout.
     const wrapper = new SessionWrapper(
@@ -209,8 +209,9 @@ describe('runForcedToolTurnUntilTimeout', () => {
       maxRetries: 1,
       getResult: () => null,
       // Intentionally NOT passing `availableTools: ['my_tool', 'run_terminal_docker']`
-      // here -- see auditorHelper.ts's comment on why that would disable
-      // run_terminal_docker instead of preserving it.
+      // here: on a nudge retry `availableTools` is the disable-then-reenable-target
+      // scope, so listing run_terminal_docker would disable it and re-enable only
+      // my_tool, instead of preserving it.
     });
 
     await expect(runPromise).rejects.toThrow(/Session ended without calling 'my_tool'/);

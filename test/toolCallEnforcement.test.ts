@@ -3,8 +3,8 @@ import { runForcedToolTurn, sendAndWaitWithAbort, STALL_TIMEOUT_MS } from '../sr
 import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 
 /**
- * Builds a fresh (un-adopted) wrapper around `client`, mirroring how
- * `executeAuditSession` constructs one (issue #77/#359) -- `_session` is
+ * Builds a fresh (un-adopted) wrapper around `client`, mirroring how a
+ * caller constructs one for a forced tool turn (issue #77/#359) -- `_session` is
  * unset, so the turn's first `sendAndWait` always goes through
  * `client.createSession()`, and only subsequent nudge/stall-retry turns go
  * through `client.resumeSession()`. `toolNames` must include every tool
