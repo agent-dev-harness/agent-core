@@ -43,8 +43,8 @@ npm install github:agent-dev-harness/agent-core#v0.1.0
 ```
 
 npm builds `dist/` during the install (the `prepare` script), which takes about 40 seconds.
-No SSH key or token is needed. To upgrade, change the tag. `@github/copilot-sdk` comes in
-through a `^` range, so a consumer can get a newer SDK than this repo's tests ran against.
+No SSH key or token is needed. To upgrade, change the tag. `@github/copilot-sdk` is pinned
+to an exact version, so consumers get the SDK this repo's tests ran against.
 
 To release, bump `version` in `package.json` in a PR. When it merges, CI runs the merge
 gate on `main` and tags that commit `v<version>`.
