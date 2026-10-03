@@ -23,7 +23,7 @@ Copilot SDK. It has four parts:
 
 Out of scope: model and role configuration. The caller passes these in.
 
-`docs/` holds the EARS requirements. `KNOWLEDGE.md` holds unreviewed background notes.
+`KNOWLEDGE.md` holds unreviewed background notes.
 
 ## Requirements
 

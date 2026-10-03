@@ -4,13 +4,6 @@ import * as path from 'node:path';
 import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from '../../src/workspace';
 import { makeRunTerminalDockerHandler } from '../../src/execTool';
 
-// Under vitest the workspace module routes to the native runner
-// (isAIStudio(): VITEST=true), so these tests exercise the real
-// execWithDefaults/cd-guard path on the host with no docker needed. The
-// docker runner uses the identical shared helpers (verified separately in
-// execToolWorkingDir.docker.test.ts and against a live container by
-// scripts/verify-run-terminal-docker.ts).
-
 const ROOT = getWorkspaceRoot();
 const execCommand = getExecCommand();
 
@@ -76,24 +69,11 @@ describe('execCommand timeout handling (native runner)', () => {
 });
 
 describe('makeRunTerminalDockerHandler deadline enforcement', () => {
-  // Reproduces the production call shape: callers pass a session-scoped
-  // AbortController.signal that only fires on session teardown, never on a
-  // timer. Before the
-  // execTool.ts fix, an omitted timeoutSeconds left opts.timeoutMs
-  // undefined, so execWithDefaults took the "signal alone, no deadline"
-  // branch and a hanging command was never killed — contradicting the
-  // tool schema's "commands are killed after 60s" promise. This uses an
-  // explicit short timeoutSeconds (rather than waiting out the real 60s
-  // default) to keep the test fast while proving the same composition
-  // path: a long-lived non-timer signal must not suppress the deadline.
   it('still enforces a deadline when composed with a long-lived, non-timer session signal', async () => {
-    const sessionAbort = new AbortController(); // never fires — models session lifetime
+    const sessionAbort = new AbortController();
     const handler = makeRunTerminalDockerHandler(sessionAbort.signal);
 
     const started = Date.now();
-    // timeoutSeconds clamps to a 30s floor (MIN_TIMEOUT_SECONDS), so the
-    // sleep must exceed that floor or it would complete before the
-    // deadline and this test would pass for the wrong reason.
     const result = await handler({ command: 'sleep 40 && echo done', timeoutSeconds: 30 });
     const elapsed = Date.now() - started;
 

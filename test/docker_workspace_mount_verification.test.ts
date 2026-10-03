@@ -1,9 +1,5 @@
 import { assert, describe, expect, it, vi, beforeEach } from "vitest";
 
-// dockerRunner caches CONTAINER_NAME / WORKSPACE_HOST_LOCATION / the mount
-// verification result at module scope (mirroring the existing
-// getContainerName() pattern), so each test that needs a fresh check must
-// vi.resetModules() and re-import.
 vi.mock("child_process", () => ({
   spawn: vi.fn(),
   spawnSync: vi.fn(),
@@ -43,10 +39,6 @@ describe("Docker workspace mount verification", () => {
 
   it("reports a timed-out probe distinctly, not as a missing directory", async () => {
     const cp = await import("child_process");
-    // Real Node spawnSync sets BOTH `signal` and `error` (code "ETIMEDOUT",
-    // message "spawnSync docker ETIMEDOUT") when the child is killed for
-    // exceeding `timeout` -- unlike the previous mock shape here, which set
-    // only `signal` and doesn't occur in practice.
     const timeoutError = Object.assign(new Error("spawnSync docker ETIMEDOUT"), { code: "ETIMEDOUT" });
     vi.mocked(cp.spawnSync).mockReturnValue({ status: null, signal: "SIGKILL", error: timeoutError } as any);
 
@@ -68,8 +60,6 @@ describe("Docker workspace mount verification", () => {
 
   it("attributes a dead/missing container to the container, not to a WORKSPACE_HOST_LOCATION mismatch", async () => {
     const cp = await import("child_process");
-    // `docker exec` itself exits non-zero with a CLI-level stderr message
-    // when the container isn't running -- `test` inside it never even ran.
     vi.mocked(cp.spawnSync).mockReturnValue({
       status: 1,
       error: undefined,
@@ -81,7 +71,6 @@ describe("Docker workspace mount verification", () => {
     await expect(runDockerProcess("echo hi")).rejects.toThrow(
       /docker exec failed before it could check the path/,
     );
-    // Should not be misdiagnosed as a WORKSPACE_HOST_LOCATION mismatch.
     await expect(runDockerProcess("echo hi").catch((e) => e.message)).resolves.not.toMatch(
       /does not exist inside container/,
     );
@@ -89,9 +78,6 @@ describe("Docker workspace mount verification", () => {
 
   it("rejects runDockerProcess with a clear error when the mounted path doesn't exist in the container", async () => {
     const cp = await import("child_process");
-    // `docker exec <container> test -d <path>` exits non-zero when the
-    // directory is absent — e.g. WORKSPACE_HOST_LOCATION drifted from the
-    // path the container was actually started with.
     vi.mocked(cp.spawnSync).mockReturnValue({ status: 1, error: undefined } as any);
 
     const { runDockerProcess } = await import("../src/workspace/dockerRunner.js");
@@ -99,8 +85,6 @@ describe("Docker workspace mount verification", () => {
     await expect(runDockerProcess("echo hi")).rejects.toThrow(
       /does not exist inside container "test-container"/,
     );
-    // Must never fall through to spawning the real command against a
-    // container path we know is wrong.
     assert.strictEqual(vi.mocked(cp.spawn).mock.calls.length, 0);
   });
 

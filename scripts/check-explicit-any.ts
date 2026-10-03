@@ -30,7 +30,6 @@ function checkFileForViolations(filePath: string): Violation[] {
     return sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
   }
 
-  // Check for @ts-ignore / @ts-expect-error
   for (let i = 0; i < fileLines.length; i++) {
     const lineText = fileLines[i] || '';
     const lineNum = i + 1;
@@ -44,7 +43,6 @@ function checkFileForViolations(filePath: string): Violation[] {
     }
   }
 
-  // Traverse AST to find explicit 'any' (AnyKeyword nodes)
   function visitAny(node: ts.Node) {
     if (node.kind === ts.SyntaxKind.AnyKeyword) {
       const startPos = node.getStart(sourceFile);

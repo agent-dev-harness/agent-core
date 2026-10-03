@@ -21,7 +21,6 @@ export class CapiProxy {
   async start(): Promise<string> {
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
-        // console.log(`[CapiProxy] Request: ${req.method} ${req.url}`);
 
         if (req.url === "/_mock_config" && req.method === "POST") {
           let body = "";
@@ -67,7 +66,6 @@ export class CapiProxy {
           return;
         }
 
-        // Mock token validation
         if (req.url === "/copilot_internal/v2/token" && req.method === "GET") {
           this.tokenFetchCount++;
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -85,7 +83,6 @@ export class CapiProxy {
         }
 
         if (req.url?.startsWith("/chat/completions") && req.method === "POST") {
-          // console.log("[CapiProxy] Intercepted /chat/completions request");
           let body = "";
           req.on("data", (chunk) => (body += chunk));
           req.on("end", async () => {
@@ -94,7 +91,7 @@ export class CapiProxy {
 
             if (this.overrides.injectError) {
               const err = this.overrides.injectError;
-              this.overrides.injectError = undefined; // Auto-reset
+              this.overrides.injectError = undefined;
               const errorPayload = JSON.stringify({ error: err });
               res.writeHead(Number(err.code) || 429, {
                 "Content-Type": "application/json",
@@ -103,10 +100,6 @@ export class CapiProxy {
               res.end(errorPayload);
               return;
             }
-            /* console.log(
-              "[CapiProxy DEBUG] parsedBody:",
-              JSON.stringify(parsedBody, null, 2),
-            ); */
 
             const sendToolCallResponse = async (
               id: string,
@@ -147,7 +140,6 @@ export class CapiProxy {
                     ],
                   })}\n\n`,
                 );
-                // Delay 100ms
                 await new Promise((r) => setTimeout(r, 100));
                 res.write(
                   `data: ${JSON.stringify({
@@ -226,7 +218,6 @@ export class CapiProxy {
               }
             };
 
-            // Handle pre-flight clarity check dynamically
             const lastMessage =
               parsedBody.messages?.[parsedBody.messages.length - 1];
 
@@ -256,7 +247,6 @@ export class CapiProxy {
               return;
             }
 
-            // Handle pre-flight composer router classification dynamically
             if (
               parsedBody.tool_choice?.function?.name ===
                 "initialize_blueprint" ||
@@ -283,20 +273,13 @@ export class CapiProxy {
               return;
             }
 
-            // Prefix-matching snapshot matching logic
             if (this.snapshot && this.snapshot.conversations) {
               const incomingMessages = parsedBody.messages;
-            /* console.log(
-                "[CapiProxy] INCOMING LENGTH:",
-                incomingMessages.length,
-              );
-              console.dir(incomingMessages, { depth: null }); */
               const matchedConversation = this.snapshot.conversations.find(
                 (conv: any, idx: number) => {
                   let incoming = incomingMessages;
                   let expected = conv.messages;
 
-                  // Specific handling for Scenario 4 (Human resume/escalation check)
                   const isPhase2 = incoming.some(
                     (m: any) =>
                       m.content &&
@@ -359,7 +342,6 @@ export class CapiProxy {
                       const expVal = (expMsg.content === null || expMsg.content === undefined) ? undefined : expMsg.content;
 
                       if (typeof incVal === "string" && typeof expVal === "string") {
-                         // Check if expected content is a template variable like ${system} or ${user}
                          if (expVal === "${system}" || expVal === "${user}") {
                            continue;
                          }
@@ -429,9 +411,7 @@ export class CapiProxy {
                 if (parsedBody.stream) {
                   res.writeHead(200, { "Content-Type": "text/event-stream" });
 
-                  // Stream tool calls
                   if (assistantMessage.content && assistantMessage.tool_calls) {
-                    // Pump conversational text fragments first
                     res.write(
                       `data: ${JSON.stringify({
                         id: "chatcmpl-mock",
@@ -444,10 +424,8 @@ export class CapiProxy {
                       })}\n\n`,
                     );
 
-                    // Delay tool block streaming by 200ms
                     await new Promise((r) => setTimeout(r, 200));
 
-                    // Pump tool calls block
                     res.write(
                       `data: ${JSON.stringify({
                         id: "chatcmpl-mock",
@@ -579,7 +557,6 @@ export class CapiProxy {
   }
 
   async setCopilotUserByToken(token: string, user: any) {
-    // Just a stub for the test harness compatibility
   }
 
   getProxyEnv() {
@@ -614,7 +591,7 @@ export class CapiProxy {
       const content = fs.readFileSync(this.snapshotFilePath, "utf8");
       this.snapshot = yaml.parse(content);
     }
-    this.callCount = 0; // reset for each test
+    this.callCount = 0;
 
     if (this.port) {
       try {

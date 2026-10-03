@@ -1,23 +1,5 @@
-/**
- * agent-core boundary guard.
- *
- * Fails if any file under a target root (src/, test/, scripts/) imports
- * anything that resolves outside the package directory, with two exceptions:
- *   - Node builtins and the bare packages in ALLOWED_BARE_SPECS (the
- *     package's fixed third-party surface);
- *   - entries in KNOWN_VIOLATIONS, an allowlist of known outside imports.
- *     It is empty, so every outside import fails.
- *
- * Checked import forms: static `import ... from`, `export ... from`,
- * dynamic `import()`, `require()`, type-position `import("...").T`, and
- * `vi.mock`/`jest.mock` string paths. Dynamic forms are the reason this
- * guard exists: a dynamic `import()` of code outside the package is
- * invisible to a static import scan and to `no-restricted-imports`.
- *
- * KNOWN_VIOLATIONS is a ratchet: it may only shrink. An entry whose
- * violation no longer occurs is stale and fails the guard, so removed
- * imports force entry deletion instead of letting the list rot.
- */
+// Fails if anything under src/, test/ or scripts/ imports from outside the package,
+// including dynamic import(), require() and vi.mock paths that ESLint can't see.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,37 +9,22 @@ import ts from 'typescript';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
-// Every root is checked against the whole package directory (REPO_ROOT), so
-// test/ may import src/ but nothing may reach outside the package. The guard
-// fails loudly rather than silently no-oping if a root is missing.
 const TARGET_ROOTS: readonly string[] = ['src', 'test', 'scripts'];
 
-// Third-party packages agent-core may import directly: @github/copilot-sdk,
-// plus vitest for the in-tree tests. Node builtins are always allowed.
-// `express` is the package's optional peer dependency — it is confined to the
-// proxy/ subdirectory (the ./proxy subpath), which is the only agent-core
-// module that touches it.
 const ALLOWED_BARE_SPECS: ReadonlySet<string> = new Set([
     '@github/copilot-sdk',
     'vitest',
     'express',
-    // Test and tooling dependencies (devDependencies): the CapiProxy test
-    // harness parses YAML snapshots; the lint scripts use the TS compiler.
     'yaml',
     'typescript',
 ]);
 
 interface KnownViolation {
-    /** Repo-root-relative POSIX path of the file containing the import. */
     file: string;
-    /** Module specifier exactly as written in the source. */
     spec: string;
-    /** Tracking number for the entry, printed alongside it. */
     backEdge: number;
 }
 
-// The allowlist is empty — any violation fails the guard outright. Keyed by
-// (file, spec) so entries survive line shifts.
 const KNOWN_VIOLATIONS: readonly KnownViolation[] = [];
 
 type ViolationKind =
@@ -71,7 +38,6 @@ type ViolationKind =
     | 'module-mock';
 
 interface FoundImport {
-    /** Repo-root-relative POSIX path of the file containing the import. */
     file: string;
     line: number;
     spec: string;
@@ -87,20 +53,13 @@ function isInside(target: string, rootAbs: string): boolean {
     return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-/**
- * True if `spec`, imported from `absFile`, stays inside `rootAbs` (or is a
- * permitted bare specifier). Non-literal dynamic specifiers are handled by
- * the caller — they can never be proven to stay inside.
- */
 function resolvesInsideTree(spec: string, absFile: string, rootAbs: string): boolean {
     if (spec.startsWith('./') || spec.startsWith('../')) {
         return isInside(path.resolve(path.dirname(absFile), spec), rootAbs);
     }
     if (spec.startsWith('@/')) {
-        // tsconfig paths: "@/*": ["./*"] — alias to the repo root.
         return isInside(path.resolve(REPO_ROOT, spec.slice('@/'.length)), rootAbs);
     }
-    // Bare specifier: Node builtin or an allowlisted third-party package.
     if (isBuiltin(spec)) {
         return true;
     }
@@ -137,7 +96,6 @@ function collectImportsFromFile(absFile: string): FoundImport[] {
                 record(node, spec, 'export-from');
             }
         } else if (ts.isImportTypeNode(node)) {
-            // Type-position import("...").T — e.g. `import("express").Response`.
             const arg = node.argument;
             const literal = ts.isLiteralTypeNode(arg) ? arg.literal : arg;
             const spec = ts.isStringLiteral(literal) ? literal.text : undefined;
@@ -150,7 +108,6 @@ function collectImportsFromFile(absFile: string): FoundImport[] {
                 if (spec !== undefined) {
                     record(node, spec, 'dynamic-import');
                 } else {
-                    // Cannot be proven to stay inside the tree.
                     record(node, '<non-literal>', 'dynamic-import-non-literal');
                 }
             } else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
@@ -225,7 +182,6 @@ function main(): void {
         found.push(...collectImportsFromFile(absFile));
     }
 
-    // Classify each found import against the package directory.
     const boundaryViolations = found.filter(
         (imp) => !resolvesInsideTree(imp.spec, path.join(REPO_ROOT, imp.file), REPO_ROOT),
     );
