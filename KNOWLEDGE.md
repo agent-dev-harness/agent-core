@@ -10,7 +10,7 @@ developed before it was extracted.
 ## Map
 
 - `README.md`: public API (entrypoints) and the environment variables the package reads.
-- `docs/requirements.md`: EARS requirements (SYS-REQ-022 to 027).
+- `docs/requirements.md`: EARS requirements (SYS-REQ-022, 023, 024, 026 and 027 families), with a map from the README goals to the checks that enforce them.
 - `docs/SessionWrapper-spec.md`: SessionWrapper tool enablement and cache stability (SYS-REQ-028).
 - `docs/copilot-sdk-record-replay.md`: the CapiProxy record/replay harness the integration tests use.
 
