@@ -38,13 +38,16 @@ Out of scope: model and role configuration. The caller passes these in.
 | Import | Contents |
 |---|---|
 | `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
-| `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
+| `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `selectWorkspaceRunner`, `WorkspaceRunner`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `setActiveOpenRouterSessionId` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
 | `@agent-dev-harness/agent-core/testing` | `nativeRunner`, for test harnesses that drive the native runner directly |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
-`makeRunTerminalDockerHandler`. To subclass `GitSandbox` (for example, to add branch-per-task
+`makeRunTerminalDockerHandler`. Commands run in Docker unless the caller picks the native
+runner, which runs them on the host: `initializeWorkspace({ runner: 'native' })` or
+`selectWorkspaceRunner('native')`. The runner can't change once the workspace is initialized.
+To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
 ## Environment variables
@@ -54,9 +57,7 @@ configuration, is passed in by the caller.
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `AI_STUDIO` | workspace runner selection | `true` selects the native runner instead of Docker. |
-| `NODE_ENV` | runner selection, native runner | `test` selects the native runner and passes the full environment to spawned commands (otherwise only a fixed `PATH`). |
-| `VITEST` | runner selection, native runner, provider registry | `true` behaves like `NODE_ENV=test`; when `COPILOT_API_URL` is also set, the registry routes every provider through it (otherwise only `openai`). |
+| `VITEST` | provider registry | When `true` and `COPILOT_API_URL` is set, the registry routes every provider through it (otherwise only `openai`). |
 | `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
 | `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required in Docker mode. |
 | `COPILOT_API_URL` | provider registry | Base URL of the provider proxy. When unset, providers route to `http://localhost:$PORT`. |
@@ -76,7 +77,7 @@ package does not read `GEMINI_API_KEY` itself.
 - The proxy keeps the active OpenRouter session id in module-level state
   (`setActiveOpenRouterSessionId`), so it is only correct for one session at a time per
   process.
-- `AI_STUDIO`, `NODE_ENV` and `VITEST` select the runner inside production code.
+- `VITEST` changes provider routing inside production code.
 
 ## Development
 

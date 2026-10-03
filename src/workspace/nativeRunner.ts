@@ -32,7 +32,7 @@ export async function runNativeProcess(
 
     const child = spawn("bash", ["-s"], {
       cwd: getWorkspaceRoot(),
-      env: process.env.NODE_ENV === "test" || process.env.VITEST === "true" ? process.env : { PATH: FIXED_PATH },
+      env: { PATH: FIXED_PATH },
       detached: true,
     });
 

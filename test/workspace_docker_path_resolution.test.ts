@@ -1,6 +1,6 @@
 import { assert, describe, it, vi, afterEach } from "vitest";
 
-const ENV_KEYS = ["AI_STUDIO", "NODE_ENV", "VITEST", "WORKSPACE_HOST_LOCATION"] as const;
+const ENV_KEYS = ["WORKSPACE_HOST_LOCATION"] as const;
 const savedEnv: Record<string, string | undefined> = {};
 
 afterEach(() => {
@@ -59,7 +59,7 @@ describe("dockerRunner path resolution off WORKSPACE_HOST_LOCATION", () => {
 });
 
 describe("getRunner() Docker branch delegation", () => {
-  it("workspace.ts delegates getWorkspaceRoot()/getWorkspaceHostLocation() to the Docker runner outside AI Studio mode", async () => {
+  it("workspace.ts delegates getWorkspaceRoot()/getWorkspaceHostLocation() to the Docker runner by default", async () => {
     clearRunnerEnv();
     process.env.WORKSPACE_HOST_LOCATION = "/delegated/path";
     vi.resetModules();
