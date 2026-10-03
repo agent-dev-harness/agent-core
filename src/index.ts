@@ -41,7 +41,7 @@ export {
   truncateExecResult,
 } from './execTool';
 
-export { ProviderRegistry } from './providerRegistry';
+export { OPENROUTER_SESSION_ID_HEADER, ProviderRegistry } from './providerRegistry';
 export type {
   ExecutionConfig,
   ProviderConfig,
