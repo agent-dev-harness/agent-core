@@ -1,9 +1,3 @@
-/**
- * Provider-type vocabulary: the data every consumer (server, UI, scripts)
- * agrees on. Role/tier model configuration is out of scope for this package
- * (see the README): the caller owns it and injects it into ProviderRegistry.
- */
-
 export const PROVIDERS = [
   "copilot-native",
   "openai",

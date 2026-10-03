@@ -188,9 +188,6 @@ describe('runForcedToolTurnUntilTimeout', () => {
       resumeSession: vi.fn().mockResolvedValue(mockSession),
     } as any;
 
-    // The usual wrapper construction for a forced tool turn: `run_terminal_docker`
-    // is a construction-time custom tool alongside the forced target tool
-    // (`my_tool`), not passed via `availableTools` to runForcedToolTurnUntilTimeout.
     const wrapper = new SessionWrapper(
       mockClient,
       {
@@ -207,10 +204,6 @@ describe('runForcedToolTurnUntilTimeout', () => {
     const runPromise = runForcedToolTurnUntilTimeout(wrapper, 'my_tool', 'test prompt', {
       maxRetries: 1,
       getResult: () => null,
-      // Intentionally NOT passing `availableTools: ['my_tool', 'run_terminal_docker']`
-      // here: on a nudge retry `availableTools` is the disable-then-reenable-target
-      // scope, so listing run_terminal_docker would disable it and re-enable only
-      // my_tool, instead of preserving it.
     });
 
     await expect(runPromise).rejects.toThrow(/Session ended without calling 'my_tool'/);
@@ -226,7 +219,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
     const mockSession = {
       sessionId: 's4',
       on: vi.fn().mockReturnValue(vi.fn()),
-      sendAndWait: vi.fn().mockImplementation(() => new Promise(() => {})), // never resolves
+      sendAndWait: vi.fn().mockImplementation(() => new Promise(() => {})),
     } as any;
 
     const mockClient = {

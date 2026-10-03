@@ -10,13 +10,6 @@ function getRunner() {
   return isAIStudio() ? native : docker;
 }
 
-/**
- * Factory for the shared GitSandbox singleton. The package default creates
- * the plain generic sandbox; a caller can pass its own factory (creating a
- * GitSandbox subclass, for example one with task-branch operations) so the
- * singleton carries those too. Keeps agent-core free of caller imports —
- * the caller pushes its subclass in rather than agent-core reaching out.
- */
 export type GitSandboxFactory = (
   workTree: string,
   gitDir: string,
@@ -27,23 +20,8 @@ function defaultCreateSandbox(workTree: string, gitDir: string, execCommand: Exe
   return new GitSandbox(workTree, gitDir, execCommand);
 }
 
-// Shared singleton — one instance means one busy flag, so withLock
-// actually protects concurrent callers across the whole application.
 let _sandbox: GitSandbox | null = null;
 
-/**
- * Initializes the workspace for this app instance.
- * Selects the appropriate runner based on the AI_STUDIO environment variable,
- * creates the shared GitSandbox singleton, and initializes the git environment.
- *
- * Must be called once at startup before any getGitSandbox() or execCommand calls.
- * Calling it a second time is a no-op — the existing sandbox is returned as-is.
- *
- * @param options.createSandbox Optional factory for the shared sandbox
- *   singleton, for a caller that subclasses GitSandbox (for example, to add
- *   task-branch operations); the package default creates the plain generic
- *   GitSandbox.
- */
 export async function initializeWorkspace(options?: { createSandbox?: GitSandboxFactory }): Promise<void> {
   if (_sandbox) return;
   const runner = getRunner();
@@ -55,10 +33,6 @@ export async function initializeWorkspace(options?: { createSandbox?: GitSandbox
   await _sandbox.initializeGitSandboxAsync();
 }
 
-/**
- * Returns the shared GitSandbox instance.
- * Throws if initializeWorkspace() has not been called yet.
- */
 export function getGitSandbox(): GitSandbox {
   if (!_sandbox) {
     throw new Error(
@@ -68,23 +42,14 @@ export function getGitSandbox(): GitSandbox {
   return _sandbox;
 }
 
-/**
- * Returns an execCommand function bound to the appropriate runner.
- */
 export function getExecCommand() {
   return getRunner().execCommand;
 }
 
-/**
- * Returns the workspace root bound to the appropriate runner.
- */
 export function getWorkspaceRoot(): string {
   return getRunner().getWorkspaceRoot();
 }
 
-/**
- * Returns the host workspace location bound to the appropriate runner.
- */
 export function getWorkspaceHostLocation(): string {
   return getRunner().getWorkspaceHostLocation();
 }

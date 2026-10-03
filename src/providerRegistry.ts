@@ -13,30 +13,9 @@ export interface ExecutionConfig {
   provider?: ProviderConfig;
 }
 
-/**
- * The known-models data ProviderRegistry needs, injected by the caller
- * because model and role configuration is out of scope for this package.
- * The caller builds it from its own role/tier configuration.
- */
 export interface ProviderRegistryConfig {
-  /**
-   * Ordered tier model names (the caller's model tiers). Used as the
-   * exact-then-longest-partial mapping candidates in getMappedModel and as
-   * the default-model fallback — deliberately NOT the full known-model list,
-   * so unmapped models keep falling back to the tier default instead of
-   * matching an unrelated known model.
-   */
   tierModels: readonly string[];
-  /**
-   * Role anchor models (the caller's per-role configs), checked in
-   * order after tierModels during model mapping.
-   */
   roleModels: readonly ModelProviderConfig[];
-  /**
-   * Every known model config (the caller's roles, tiers and known models)
-   * used to resolve a model's provider in getProviderType
-   * and getExecutionConfig.
-   */
   allConfigs: readonly ModelProviderConfig[];
 }
 
@@ -46,35 +25,21 @@ export class ProviderRegistry {
   private apiKey: string | undefined;
   private readonly known: ProviderRegistryConfig;
 
-  /**
-   * @param apiKey      Default API key handed to provider configs.
-   * @param knownModels The caller's role/tier model data. Omitted (the package
-   *   standalone default) behaves like an empty configuration: mapping falls
-   *   back to 'gemini-3.1-flash-lite' and provider resolution to the
-   *   openrouter/gemini heuristics.
-   */
   constructor(apiKey: string | undefined, knownModels?: ProviderRegistryConfig) {
     this.apiKey = apiKey;
     this.known = knownModels ?? EMPTY_KNOWN_MODELS;
   }
 
-  /**
-   * Helper to map raw model names to official model identifiers.
-   * This replaces structural dependencies on raw hardcoded mappings or fallbacks
-   * in server.ts.
-   */
   public getMappedModel(modelName?: string): string {
     const tierModels = this.known.tierModels;
     if (!modelName) {
       return tierModels[0] || 'gemini-3.1-flash-lite';
     }
     const cleaned = modelName.replace('models/', '').trim();
-    // Return custom provider-namespaced paths early (e.g. openrouter paths) to avoid incorrect partial matching/collapsing
     if (cleaned.includes('/')) {
       return cleaned;
     }
 
-    // Prefer exact matches then longest partial match to avoid substring collisions (e.g. gpt-4o vs gpt-4o-mini)
     const exact = tierModels.find(m => m === cleaned);
     if (exact) return exact;
 
@@ -93,9 +58,6 @@ export class ProviderRegistry {
     return tierModels[0] || 'gemini-3.1-flash-lite';
   }
 
-  /**
-   * Resolves the provider type for a given model or config, without retrieving or validating API keys.
-   */
   public getProviderType(input: string | ModelProviderConfig): ProviderType {
     if (typeof input === 'object' && input !== null) {
       return input.provider;
@@ -122,9 +84,6 @@ export class ProviderRegistry {
     }
   }
 
-  /**
-   * Retrieves the specific ProviderConfig block for the given model.
-   */
   public getProviderConfig(provider: ProviderType, modelName: string): ProviderConfig | undefined {
     if (provider === 'copilot-native') {
       return undefined;
@@ -166,12 +125,10 @@ export class ProviderRegistry {
         apiKey: process.env.LOCAL_PROVIDER_API_KEY || 'ollama'
       };
     } else if (provider === 'openrouter') {
-      // Support OpenRouter API key env var without GEMINI_API_KEY fallback to avoid silent failure
       const apiKey = process.env.OPENROUTER_API_KEY || (this.apiKey !== 'mock-key' ? this.apiKey : undefined);
       if (!apiKey) {
         throw new Error('Missing API key for OpenRouter provider. Expected OPENROUTER_API_KEY to be set.');
       }
-
 
       const proxyBaseUrl = process.env.COPILOT_API_URL ? `${process.env.COPILOT_API_URL}/api/providers/openrouter/api/v1/` : `http://localhost:${process.env.PORT || 3000}/api/providers/openrouter/api/v1/`;
       let finalBaseUrl = process.env.OPENROUTER_BASE_URL || proxyBaseUrl;
@@ -185,7 +142,6 @@ export class ProviderRegistry {
       }
       return {
         type: 'openai',
-        // default known endpoint for OpenRouter; allow override via OPENROUTER_BASE_URL if needed
         baseUrl: finalBaseUrl,
         apiKey
       };
@@ -211,10 +167,6 @@ export class ProviderRegistry {
     return undefined;
   }
 
-  /**
-   * Resolves the entire ExecutionConfig (model execution identity and provider connection variables)
-   * exclusively from the registry instance.
-   */
   public getExecutionConfig(input: string | ModelProviderConfig): ExecutionConfig {
     let providerType: ProviderType = 'gemini';
     let model: string;
@@ -224,18 +176,13 @@ export class ProviderRegistry {
       model = this.getMappedModel(input.model);
     } else {
       model = this.getMappedModel(input as string);
-      // Look up model in all configs to find its configured provider.
-      // Prefer exact matches. If none, pick the longest partial match to avoid shorter substrings shadowing longer models.
       const allConfigs = this.known.allConfigs;
 
-      // exact match first
       let matchedConfig = allConfigs.find(t => t.model === model);
 
       if (!matchedConfig) {
-        // candidates where either side contains the other
         const candidates = allConfigs.filter(t => model.includes(t.model) || t.model.includes(model));
         if (candidates.length > 0) {
-          // choose the candidate with the longest model string to prefer more-specific variants
           candidates.sort((a, b) => b.model.length - a.model.length);
           matchedConfig = candidates[0];
         }
@@ -258,7 +205,6 @@ export class ProviderRegistry {
     };
   }
 
-  // Classic static helper for backward compatibility
   static getProviderConfig(provider: ProviderType, modelName: string, apiKey: string): ProviderConfig | undefined {
     return new ProviderRegistry(apiKey).getProviderConfig(provider, modelName);
   }

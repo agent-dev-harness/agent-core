@@ -3,12 +3,7 @@ import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
 import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
-// Deliberately no fallback default here. WORKSPACE_HOST_LOCATION must match
-// wherever `docker compose up` actually mounted the workspace (see
-// docker-compose.yml); silently defaulting to a guessed path (previously
-// /tmp/applet_workspace, which is shadowed by the container's /tmp tmpfs
-// mount) just reproduces a misconfiguration invisibly instead of failing at
-// the point it happens.
+// No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
 
 function getWorkspaceHostLocationOrThrow(): string {
@@ -24,13 +19,8 @@ function getWorkspaceHostLocationOrThrow(): string {
   return WORKSPACE_HOST_LOCATION;
 }
 
-// Default timeout for user-supplied commands. Callers can override by passing
-// their own AbortSignal; this deadline applies only when none is provided.
 const EXEC_TIMEOUT_MS = 60_000;
 
-/**
- * Assume container is already running and initialized. User of the app should have full control over the container lifecycle. This module only provides a way to run commands inside the container.
- */
 let CONTAINER_NAME = "";
 
 function getContainerName(): string {
@@ -45,22 +35,8 @@ function getContainerName(): string {
   return CONTAINER_NAME;
 }
 
-// Whether we've already confirmed WORKSPACE_HOST_LOCATION actually exists
-// inside the target container. Verified (and cached) once per process
-// lifetime rather than on every exec: cheap enough to be worth doing before
-// any real command runs, but not worth a `docker exec test -d` round-trip on
-// every single invocation. A present-but-wrong var (e.g. a stale value from
-// a previous job, or a step exporting a path different from the one
-// `docker compose up` mounted) is drift the missing-var check alone can't
-// detect.
 let workspaceMountVerified = false;
 
-// Bound the mount-verification probe the same way exec/kill work elsewhere
-// in this file (EXEC_TIMEOUT_MS, CONTAINER_KILL_GRACE_MS): spawnSync is
-// fully synchronous and blocks the entire Node event loop until it
-// resolves, so an unbounded call here would let a wedged docker daemon
-// freeze the whole process (HTTP/SSE server, abort timers, every concurrent
-// session) on the very first runDockerProcess call after startup.
 const VERIFY_MOUNT_TIMEOUT_MS = 5_000;
 
 function verifyWorkspaceMount(): void {
@@ -72,10 +48,6 @@ function verifyWorkspaceMount(): void {
     killSignal: "SIGKILL",
     encoding: "utf-8",
   });
-  // Node sets BOTH `error` (code "ETIMEDOUT") and `signal` on a spawnSync
-  // timeout, so this must be checked before the generic `result.error`
-  // branch below, or the timeout always gets misreported as a generic
-  // "failed to verify" error instead of the more actionable diagnosis here.
   if (result.signal || (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
     throw new Error(
       `Timed out after ${VERIFY_MOUNT_TIMEOUT_MS}ms verifying WORKSPACE_HOST_LOCATION ("${location}") inside ` +
@@ -90,13 +62,6 @@ function verifyWorkspaceMount(): void {
   }
   if (result.status !== 0) {
     const stderr = (result.stderr || "").trim();
-    // `docker exec ... test -d <path>` exits non-zero both when the path is
-    // genuinely missing inside an otherwise-healthy container (test's own
-    // exit code, no stderr) and when docker itself couldn't run the command
-    // at all -- container stopped, container missing, daemon unreachable --
-    // which surfaces as docker CLI stderr rather than a plain `test`
-    // failure. Distinguish them so a dead container doesn't get misdiagnosed
-    // as a WORKSPACE_HOST_LOCATION mismatch.
     const looksLikeDockerCliFailure =
       /No such container|is not running|Cannot connect to the Docker daemon/i.test(stderr);
     if (looksLikeDockerCliFailure) {
@@ -118,25 +83,11 @@ function verifyWorkspaceMount(): void {
   workspaceMountVerified = true;
 }
 
-/**
- * Executes a command inside the persistent Docker container via `docker exec`.
- * The container is started once by initializeWorkspace and remains running
- * for the lifetime of the app instance. Mount points and container configuration
- * are owned by docker-compose; this function only handles process lifecycle and I/O.
- *
- * `workDir` (already resolved and traversal-checked by the shared wrapper)
- * selects the directory the command runs in; it is applied by prepending a
- * `cd` guard to the command stream rather than via `docker exec -w`, so a
- * missing directory surfaces as a readable bash diagnostic (exit 91) instead
- * of an opaque OCI runtime error.
- */
 export async function runDockerProcess(
   command: string,
   signal?: AbortSignal,
   workDir?: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  // Needs to run docker exec -i container_name bash -s <<< "command"
-  // No need to sanitize. The container is already an isolated environment.
   return new Promise((resolve) => {
     const workspaceRoot = getWorkspaceHostLocationOrThrow();
 
@@ -149,9 +100,6 @@ export async function runDockerProcess(
       command = prependWorkDir(command, resolved.dir, workspaceRoot);
     }
 
-    // Throws synchronously (rejecting this promise, same as a missing
-    // CONTAINER_NAME already did) if the var is unset or doesn't match
-    // reality, before we ever spawn the real command.
     verifyWorkspaceMount();
 
     const runId = crypto.randomUUID();
@@ -167,32 +115,17 @@ export async function runDockerProcess(
       "-s",
     ], { detached: true });
 
-    // How long we're willing to wait for the container-side kill to confirm
-    // before giving up and resolving anyway. Container cleanup is best-effort;
-    // this bounds that effort instead of leaving callers to wait forever if
-    // the docker daemon is unresponsive, while still closing most of the
-    // "resolved before the orphan was actually killed" race.
     const CONTAINER_KILL_GRACE_MS = 1500;
 
     let killInitiated = false;
     let containerCleanupPromise: Promise<void> = Promise.resolve();
 
-    // Kills the host-side docker exec process immediately (synchronous) and
-    // returns a promise that resolves once the container-side cleanup has
-    // either finished or timed out. Idempotent: calling this more than once
-    // (e.g. from onAbort and then the stdin-not-writable branch) only spawns
-    // the container-side kill once.
     const killChild = (): Promise<void> => {
       if (killInitiated) return containerCleanupPromise;
       killInitiated = true;
 
-      // 1. Kill host-side docker exec client process
       killProcessGroup(child);
 
-      // 2. Kill descendants inside the container namespace.
-      // EXEC_RUN_ID is passed via -e (an env var), not interpolated into the
-      // shell string, so this is safe regardless of what runId looks like —
-      // no reliance on it always being a shell-metacharacter-free UUID.
       containerCleanupPromise = new Promise<void>((resolveCleanup) => {
         let settled = false;
         const settle = () => {
@@ -204,16 +137,8 @@ export async function runDockerProcess(
         const graceTimer = setTimeout(settle, CONTAINER_KILL_GRACE_MS);
 
         try {
-          // The `[ "$pid" = "$$" ] && continue` guard excludes this very
-          // bash process from the kill list. Without it, this exec is
-          // tagged with the same EXEC_RUN_ID as the target, so it matches
-          // its own grep. /proc/[0-9]*/environ globs in lexicographic (not
-          // numeric) order, so whenever the target's PID and this script's
-          // PID straddle a power-of-10 boundary (e.g. target=999,
-          // self=1000), "1000" sorts before "999" and this script would
-          // SIGKILL itself before reaching the real target — silently
-          // leaking the orphan. Excluding $$ removes that ordering
-          // dependency entirely.
+          // The host can't signal processes inside the container's PID namespace, so kill them
+          // there by run marker. The kill shell carries the marker too and skips itself ($$).
           const killCmd = `for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do [ "$pid" = "$$" ] && continue; kill -9 "$pid" || echo "kill-failed pid=$pid" >&2; done`;
           const killProc = spawn("docker", [
             "exec",
@@ -225,9 +150,6 @@ export async function runDockerProcess(
             killCmd,
           ]);
 
-          // Best-effort cleanup, but we surface failures instead of silently
-          // swallowing them, since a failed container-side kill means an
-          // orphan process may still be running inside the container.
           let killStderr = "";
           killProc.stderr?.on("data", (data) => {
             killStderr += data.toString();
@@ -305,10 +227,6 @@ export async function runDockerProcess(
     } else {
       if (signal) signal.removeEventListener("abort", onAbort);
 
-      // Wait for the process to fully exit before resolving. A fallback timer
-      // guards against close never firing (e.g. the kill not propagating into
-      // the container). Whichever branch wins cancels the other to ensure
-      // resolve() is called exactly once and neither handler is left dangling.
       const timer = setTimeout(() => {
         child.removeAllListeners("close");
         resolve({
@@ -334,14 +252,6 @@ export async function runDockerProcess(
   });
 }
 
-/**
- * Executes a command in the workspace root (WORKSPACE_HOST_LOCATION).
- *
- * If no AbortSignal is supplied, a default timeout of EXEC_TIMEOUT_MS is
- * applied to prevent LLM-generated commands from hanging indefinitely.
- * `opts.timeoutMs` overrides that default (composed with any caller
- * signal); `opts.workDir` selects the directory the command runs in.
- */
 export async function execCommand(
   command: string,
   signal?: AbortSignal,
@@ -350,10 +260,6 @@ export async function execCommand(
   return execWithDefaults(runDockerProcess, command, signal, opts, EXEC_TIMEOUT_MS);
 }
 export function getWorkspaceRoot(): string {
-  // The compose mount binds the host workspace to the identical absolute
-  // path inside the container (see docker-compose.yml), so the
-  // container-side root is just the host location, not a separately
-  // -remapped constant.
   return getWorkspaceHostLocationOrThrow();
 }
 export function getWorkspaceHostLocation(): string {

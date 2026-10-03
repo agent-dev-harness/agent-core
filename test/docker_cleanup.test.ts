@@ -5,10 +5,6 @@ import * as crypto from "crypto";
 
 vi.mock("child_process", () => ({
   spawn: vi.fn(),
-  // dockerRunner uses spawnSync once (cached thereafter) to confirm
-  // WORKSPACE_HOST_LOCATION actually exists inside the container before
-  // running the real command; stub it to succeed so these tests can focus
-  // on the spawn()-based exec/kill behavior they're actually exercising.
   spawnSync: vi.fn(() => ({ status: 0, error: undefined })),
 }));
 
@@ -44,13 +40,10 @@ describe("Docker Cleanup & Orphan Handling", () => {
     const ac = new AbortController();
     const p = runDockerProcess("sleep 100", ac.signal);
 
-    // Give it a micro-tick to set up the spawn
     await new Promise((r) => setTimeout(r, 10));
 
-    // Abort it
     ac.abort();
 
-    // The first spawn should be the docker exec bash -s
     const calls = vi.mocked(cp.spawn).mock.calls;
     assert.ok(calls.length >= 2, "Expected at least 2 spawns (the run, and the kill)");
 
@@ -71,10 +64,6 @@ describe("Docker Cleanup & Orphan Handling", () => {
     );
   });
 
-  // Creates a minimal EventEmitter-like mock child process so we can trigger
-  // "close"/"error" from the test itself, rather than the fire-and-forget
-  // vi.fn() stub used above (which is enough for asserting spawn args, but
-  // can't exercise the promise-resolution paths that depend on those events).
   function createMockChild(pid: number) {
     const listeners: Record<string, Array<(...args: any[]) => void>> = {};
     const child: any = {
@@ -116,17 +105,14 @@ describe("Docker Cleanup & Orphan Handling", () => {
     });
 
     const ac = new AbortController();
-    ac.abort(); // aborted BEFORE runDockerProcess registers any listeners
+    ac.abort();
 
     const p = runDockerProcess("sleep 100", ac.signal);
 
-    // Give the synchronous kill + container-side spawn a tick to happen.
     await new Promise((r) => setTimeout(r, 10));
 
     assert.strictEqual(spawnCount, 2, "Expected the main spawn plus the container-side kill spawn even for an already-aborted signal");
 
-    // The promise should not have resolved yet — it's waiting on the
-    // container-side kill to close.
     let resolved = false;
     p.then(() => {
       resolved = true;
@@ -160,11 +146,8 @@ describe("Docker Cleanup & Orphan Handling", () => {
     ac.abort();
     await new Promise((r) => setTimeout(r, 10));
 
-    // Simulate docker exec itself failing to spawn for the kill command.
     killProc.emit("error", new Error("ENOENT: docker not found"));
 
-    // Host-side kill already happened synchronously; simulate the main
-    // process's close firing as a result.
     mainChild.emit("close", null);
 
     const result = await p;

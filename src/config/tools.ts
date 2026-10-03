@@ -1,9 +1,3 @@
-/**
- * The run_terminal_docker tool definition. Callers pair it with
- * `makeRunTerminalDockerHandler` (execTool.ts) to give a session the tool
- * that replaces the built-in bash tool.
- */
-
 export const RUN_TERMINAL_DOCKER_TOOL = {
   type: 'function',
   function: {

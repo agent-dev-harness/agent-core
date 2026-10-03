@@ -2,12 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionWrapper } from './sessionWrapper';
 import type { CopilotClient, CopilotSession, PermissionRequest, SessionConfig } from './boundary';
 
-/**
- * Minimal fake `CopilotClient`: records every `createSession`/`resumeSession`
- * call's config and hands back a fake session whose `sessionId` increments,
- * so tests can assert on create-vs-resume decisions and on exactly what
- * config was passed, without touching the real SDK.
- */
 type FakeConfig = SessionConfig & { autoApproveAll?: boolean };
 
 function fakeClient(): {
@@ -69,7 +63,7 @@ function fakeTool(name: string) {
   };
 }
 
-describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed at construction)', () => {
+describe('SessionWrapper._createConfig (schema is fixed at construction)', () => {
   it('with zero tools: availableTools is empty and every candidate is denied', async () => {
     const wrapper = new SessionWrapper();
     const config = wrapper._createConfig();
@@ -81,7 +75,7 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
     });
   });
 
-  it('with one built-in tool: availableTools and permission agree, and both stay true after a later disableTools call (028/028d-1)', async () => {
+  it('with one built-in tool: availableTools and permission agree, and both stay true after a later disableTools call', async () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     const config = wrapper._createConfig();
 
@@ -93,12 +87,9 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
       kind: 'reject',
     });
 
-    // Disabling the tool must NOT change the wire-level schema (028/028d-1):
-    // availableTools is re-read fresh below and must still list 'edit'.
     wrapper.disableTools('edit');
     const configAfterDisable = wrapper._createConfig();
     expect(configAfterDisable.availableTools).toEqual(['edit']);
-    // But the permission layer now denies it (028d).
     await expect(
       configAfterDisable.onPermissionRequest(writeRequest(), { sessionId: 's1' })
     ).resolves.toMatchObject({ kind: 'reject' });
@@ -136,7 +127,7 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
     });
   });
 
-  it('all construction-time tools are enabled by default (SYS-REQ-028c)', async () => {
+  it('all construction-time tools are enabled by default', async () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] });
     const config = wrapper._createConfig();
 
@@ -150,20 +141,6 @@ describe('SessionWrapper._createConfig (SYS-REQ-028/028a/028d-1: schema is fixed
 });
 
 describe('SessionWrapper permission-kind derivation (regression coverage)', () => {
-  // Regression coverage: `availableTools` (wire names) and the
-  // permission-request `kind` the SDK reports for built-ins are two
-  // different namespaces, and a caller who conflates them gets every
-  // built-in tool call silently rejected. `hardenedSession.ts`'s
-  // `deriveAutoApprovedTools`/`BUILTIN_TOOL_PERMISSION_KIND` had a dedicated
-  // regression suite (`issue277.test.ts`) for its own copy of this mapping;
-  // `SessionWrapper` derives the same mapping internally (its own
-  // `BUILTIN_TOOL_PERMISSION_KIND`, unexported) via `_createConfig()`'s
-  // `onPermissionRequest`, so this ports the same assertions onto that
-  // surface: constructing a wrapper with a single built-in and asserting its
-  // *kind*-shaped request is approved, matching the "wire name maps to
-  // kind" table one entry at a time (avoids the deliberate
-  // multiple-siblings-share-a-kind collision behavior covered separately by
-  // 'rejects a real "grep" tool call ...' in sessionWrapper.integration.test.ts).
   it.each([
     { builtin: 'view', request: readRequest(), kindLabel: 'read' },
     { builtin: 'grep', request: readRequest(), kindLabel: 'read' },
@@ -192,7 +169,7 @@ describe('SessionWrapper permission-kind derivation (regression coverage)', () =
   });
 });
 
-describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
+describe('SessionWrapper.enableTools/disableTools', () => {
   it('disableTools denies at the permission layer without touching availableTools/tools', async () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     wrapper.disableTools('edit');
@@ -220,7 +197,6 @@ describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
     wrapper.disableTools('run_gh_command');
     const config = wrapper._createConfig();
 
-    // Schema stays present regardless of enablement (028/028d).
     expect(config.availableTools).toEqual(['run_gh_command']);
     expect(config.tools).toEqual([tool]);
     await expect(
@@ -228,13 +204,11 @@ describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
     ).resolves.toMatchObject({ kind: 'reject' });
   });
 
-  it('throws synchronously on an unknown tool name and applies no partial state change (SYS-REQ-028b)', () => {
+  it('throws synchronously on an unknown tool name and applies no partial state change', () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] });
 
     expect(() => wrapper.disableTools('edit', 'unknown_tool')).toThrow(/unknown tool/);
 
-    // 'edit' must still be enabled -- the throw happened before any mutation
-    // was applied, not partway through the name list.
     const config = wrapper._createConfig();
     return expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toEqual({
       kind: 'approve-once',
@@ -247,22 +221,20 @@ describe('SessionWrapper.enableTools/disableTools (SYS-REQ-028b/028c)', () => {
 
     expect(() => wrapper.enableTools('edit', 'unknown_tool')).toThrow(/unknown tool/);
 
-    // 'edit' must still be disabled -- the earlier disableTools call is not
-    // undone by the partially-attempted enableTools call.
     const config = wrapper._createConfig();
     return expect(config.onPermissionRequest(writeRequest(), { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
     });
   });
 
-  it('a name never supplied at construction cannot be enabled -- there is no post-construction way to add a tool (SYS-REQ-028a)', () => {
+  it('a name never supplied at construction cannot be enabled -- there is no post-construction way to add a tool', () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     expect(() => wrapper.enableTools('view')).toThrow(/unknown tool/);
     expect(wrapper._createConfig().availableTools).toEqual(['edit']);
   });
 });
 
-describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028e/028f/028g)', () => {
+describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
   it('the first call always creates; a second call on the same instance resumes', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
@@ -277,7 +249,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     expect(resumeCalls[0]?.sessionId).toBe('session-0');
   });
 
-  it('resume sends onPermissionRequest, autoApproveAll: false, and the SDK-mandatory tools/availableTools/systemMessage -- no model or other base-config fields (SYS-REQ-028g)', async () => {
+  it('resume sends onPermissionRequest, autoApproveAll: false, and the SDK-mandatory tools/availableTools/systemMessage -- no model or other base-config fields', async () => {
     const { client, resumeCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, { workingDirectory: '/tmp/work' })
       .setSystemPrompt('be terse')
@@ -288,17 +260,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
 
     const resumeConfig = resumeCalls[0]?.config;
     expect(resumeConfig?.onPermissionRequest).toBeDefined();
-    // autoApproveAll: false must ride along -- CopilotClient's own
-    // resumeSession override (boundary.ts) defaults it to true when
-    // omitted, which would silently replace onPermissionRequest with an
-    // auto-approve-everything handler and defeat SYS-REQ-028d entirely.
     expect(resumeConfig?.autoApproveAll).toBe(false);
-    // systemMessage IS resent on resume: `resumeSession` does not inherit it
-    // from the session being resumed (KNOWLEDGE.md, "resumeSession() drops the
-    // system prompt unless you re-pass it"; boundary.ts docstring on
-    // `CopilotClient.resumeSession`). Omitting it here would
-    // silently fall back to the SDK's default system prompt for the rest of
-    // the turn.
     expect(Object.keys(resumeConfig ?? {}).sort()).toEqual([
       'autoApproveAll',
       'availableTools',
@@ -308,7 +270,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     ]);
   });
 
-  it('the wire-level tools schema is byte-identical between create and every resume, even after enableTools/disableTools (SYS-REQ-028/028a)', async () => {
+  it('the wire-level tools schema is byte-identical between create and every resume, even after enableTools/disableTools', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit', 'view'] }).setModelName('claude-sonnet-4.5');
 
@@ -316,18 +278,13 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle (SYS-REQ-028
     wrapper.disableTools('edit').enableTools('edit').disableTools('view');
     await wrapper.sendAndWait('turn two');
 
-    // `tools`/`availableTools` ARE resent on resume (SYS-REQ-028g's SDK-
-    // requires-it carve-out, see previous test) -- but their VALUE must
-    // still be byte-identical to what create sent, never narrowed to the
-    // enabled subset, regardless of the enableTools/disableTools calls in
-    // between (SYS-REQ-028/028a/028d-1).
     expect(createCalls[0]?.availableTools).toEqual(['edit', 'view']);
     expect(resumeCalls[0]?.config?.availableTools).toEqual(['edit', 'view']);
     expect(resumeCalls[0]?.config?.tools).toEqual(createCalls[0]?.tools);
   });
 });
 
-describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
+describe('SessionWrapper.sendAndWait: systemMessage', () => {
   it('is sent in customize mode, carrying the caller instructions, and resent byte-identical on resume', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
@@ -339,11 +296,6 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
 
     expect(createCalls[0]?.systemMessage?.mode).toBe('customize');
     expect(createCalls[0]?.systemMessage?.content).toContain('you are an auditor');
-    // `resumeSession` does not inherit `systemMessage` from the session
-    // being resumed (KNOWLEDGE.md) -- it falls into the same
-    // "SDK requires it re-sent" carve-out as `tools`/`availableTools`, so it
-    // must be resent here byte-identical to what creation sent, frozen for
-    // the session's life (SYS-REQ-028l).
     expect(resumeCalls[0]?.config.systemMessage).toEqual(createCalls[0]?.systemMessage);
   });
 
@@ -378,7 +330,7 @@ describe('SessionWrapper.sendAndWait: systemMessage (SYS-REQ-028h)', () => {
   });
 });
 
-describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/028l)', () => {
+describe('SessionWrapper.sendAndWait: per-turn enablement notice', () => {
   it('is prepended on the very first turn, before any mutation has happened', async () => {
     const { client, sessions } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit', 'view'] }).setModelName('claude-sonnet-4.5');
@@ -459,7 +411,7 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice (SYS-REQ-028i/0
   });
 });
 
-describe('SessionWrapper.sendAndWait: mid-turn enablement race (SYS-REQ-028k)', () => {
+describe('SessionWrapper.sendAndWait: mid-turn enablement race', () => {
   it('an in-flight call is unaffected by a disableTools that lands after its permission check already ran; a later call to the same tool is denied', async () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     const config = wrapper._createConfig();
@@ -484,8 +436,6 @@ describe('SessionWrapper: misc lifecycle errors', () => {
     await wrapper.sendAndWait('turn two');
 
     expect(createCalls[0]?.model).toBe('claude-sonnet-4.5');
-    // model isn't part of the resume payload at all (SYS-REQ-028g) -- it was
-    // only ever meaningful at creation time.
     expect(resumeCalls[0]?.config.model).toBeUndefined();
   });
 
@@ -513,17 +463,12 @@ describe('SessionWrapper: misc lifecycle errors', () => {
   });
 });
 
-// NOTE: adopt() is a transitional mechanism, not a permanent
-// spec-sanctioned feature -- see the docstring on SessionWrapper.adopt().
-// These tests lock down its behavior while it's in use, not because it's
-// meant to be a lasting pattern; they should be revisited/retired alongside
-// adopt() once the raw-session call sites it unblocks are migrated.
 describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => {
   function frozenSystemMessage(content: string): SessionConfig['systemMessage'] {
     return { mode: 'customize', content };
   }
 
-  it('the first sendAndWait after adopt resumes the adopted session, never creates a new one (adopt() is exempt from SYS-REQ-028f\'s create-on-first-call default, per its docstring -- not a spec amendment)', async () => {
+  it('the first sendAndWait after adopt resumes the adopted session, never creates a new one', async () => {
     const { client, createCalls, resumeCalls, sessions: _sessions } = fakeClient();
     const preexistingSession = {
       sessionId: 'preexisting-session',
@@ -546,7 +491,7 @@ describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => 
     expect(resumeCalls[0]?.sessionId).toBe('preexisting-session');
   });
 
-  it('resends the exact frozenSystemMessage passed to adopt(), byte-identical, on every subsequent resume (per SYS-REQ-028g/h, applied to adopt()\'s caller-supplied value rather than a wrapper-issued one)', async () => {
+  it('resends the exact frozenSystemMessage passed to adopt(), byte-identical, on every subsequent resume', async () => {
     const { client, resumeCalls } = fakeClient();
     const preexistingSession = {
       sessionId: 'preexisting-session',
@@ -591,12 +536,10 @@ describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => 
     const firstSendAndWait = sessions[0]?.sendAndWait as ReturnType<typeof vi.fn>;
     const firstPrompt = firstSendAndWait.mock.calls[0]?.[0] as string;
     expect(firstPrompt).not.toContain('additional operating instructions changed');
-    // The unconditional per-turn enablement notice (SYS-REQ-028i) must still
-    // fire, though -- adoption doesn't exempt this call site from it.
     expect(firstPrompt).toContain('Tools enabled this turn');
   });
 
-  it('enableTools/disableTools govern the adopted session exactly as they would a self-created one (SYS-REQ-028b/c/d)', async () => {
+  it('enableTools/disableTools govern the adopted session exactly as they would a self-created one', async () => {
     const { client } = fakeClient();
     const preexistingSession = {
       sessionId: 'preexisting-session',
@@ -619,8 +562,6 @@ describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => 
 
     wrapper.disableTools('edit');
     const configAfter = wrapper._createConfig();
-    // Wire-level schema is still fixed to the full construction-time list
-    // (028/028d-1) -- adoption doesn't change that either.
     expect(configAfter.availableTools).toEqual(['edit', 'view']);
     await expect(configAfter.onPermissionRequest({ kind: 'write' } as PermissionRequest, { sessionId: 's1' })).resolves.toMatchObject({
       kind: 'reject',
@@ -641,7 +582,7 @@ describe('SessionWrapper.adopt (transitional caller-owned-session path)', () => 
   });
 });
 
-describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m)', () => {
+describe('SessionWrapper.sendAndWait: largeOutput lockdown', () => {
   it('sends the locked-down largeOutput config on create', async () => {
     const { client, createCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
@@ -653,10 +594,6 @@ describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m)', () =
 
   it('cannot be overridden by _baseConfig, even if _baseConfig tries to disable it', async () => {
     const { client, createCalls } = fakeClient();
-    // Simulates a future caller adding largeOutput to _baseConfig, whether
-    // by mistake or to intentionally (and incorrectly) disable it -- SYS-
-    // REQ-028m requires the literal in the createSession call to win
-    // regardless, since it's spread last.
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, {
       largeOutput: { enabled: false },
     }).setModelName('claude-sonnet-4.5');
@@ -667,7 +604,7 @@ describe('SessionWrapper.sendAndWait: largeOutput lockdown (SYS-REQ-028m)', () =
   });
 });
 
-describe('SessionWrapper side-door surface (SYS-REQ-028e/028j)', () => {
+describe('SessionWrapper side-door surface', () => {
   it('exposes no method that could bind policy/config to a session it did not create, and no post-construction tool-adding method', () => {
     const allowedPublicMethods = new Set([
       'enableTools',
@@ -675,10 +612,6 @@ describe('SessionWrapper side-door surface (SYS-REQ-028e/028j)', () => {
       'setSystemPrompt',
       'setModelName',
       'sendAndWait',
-      // Read-only view of the wrapper's own live session --
-      // exposes no way to bind policy/config to a session the wrapper did
-      // not create, so it doesn't reopen the "no side door" guarantee (SYS-REQ-027g).
-      // See the getter's docstring in sessionWrapper.ts.
       'session',
     ]);
     const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement']);

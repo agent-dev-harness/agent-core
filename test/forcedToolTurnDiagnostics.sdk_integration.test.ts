@@ -8,13 +8,9 @@ import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 import { runForcedToolTurnUntilTimeout } from '../src/toolCallEnforcement';
 import { ProviderRegistry } from '../src/providerRegistry';
 
-
 const SYSTEM_PROMPT = 'You are an auditor. Report findings via the tool.';
 const USER_PROMPT = 'Audit this change for security issues.';
 
-// Drives one forced tool turn the way a caller of this package would: its own
-// CopilotClient, a SessionWrapper with the submission tool, and
-// runForcedToolTurnUntilTimeout.
 async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promise<unknown> {
   const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
     provider: 'gemini',
@@ -56,15 +52,6 @@ async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promis
   }
 }
 
-// Exercises the diagnostic logging (sendAndWaitWithAbort's
-// tool.execution_start / usage-telemetry logs) against a REAL CopilotClient/CopilotSession talking to the CapiProxy
-// harness described in docs/copilot-sdk-record-replay.md, rather than the
-// hand-mocked session.on()/sendAndWait() doubles used elsewhere in this
-// suite. Nothing here asserts against an assumed SDK event shape -- the
-// events are whatever the real SDK actually emits when it processes a real
-// tool call, so this catches drift between our assumptions (in
-// toolCallEnforcement.ts) and the SDK's real contract that a fully mocked
-// session/client can't.
 describe('Forced tool turn diagnostics against real SDK/proxy transport', () => {
   let proxy: CapiProxy;
   let proxyUrl: string;
@@ -108,14 +95,9 @@ describe('Forced tool turn diagnostics against real SDK/proxy transport', () => 
   it('logs the real tool.execution_start event emitted by the SDK when the submission tool actually runs', { timeout: 30000 }, async () => {
     await runSubmitFindingTurn(tmpWorkDir, 0);
 
-    // This is the real SDK's own event, not a hand-mocked one -- confirms
-    // the toolName field name/shape assumption in sendAndWaitWithAbort
-    // actually matches what the SDK emits in practice.
     const toolUsedLog = logSpy.mock.calls.find((c: unknown[]) => String(c[0]).includes('tool used: submit_finding'));
     expect(toolUsedLog).toBeDefined();
 
-    // No "UNEXPECTED EVENT SHAPE" loud-failure should have fired against a
-    // real, well-formed SDK event stream.
     const shapeErrors = errorSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('UNEXPECTED EVENT SHAPE'));
     expect(shapeErrors).toHaveLength(0);
   });

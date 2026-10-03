@@ -11,10 +11,6 @@ afterEach(() => {
   }
 });
 
-// getRunner() treats NODE_ENV=test / VITEST=true as AI Studio mode (so the
-// rest of the suite gets a safe native runner by default). To exercise the
-// Docker branch we have to explicitly unset those here, then restore
-// everything afterward.
 function clearRunnerEnv() {
   for (const key of ENV_KEYS) {
     savedEnv[key] = process.env[key];
@@ -23,12 +19,6 @@ function clearRunnerEnv() {
 }
 
 describe("dockerRunner path resolution off WORKSPACE_HOST_LOCATION", () => {
-  // dockerRunner.ts is imported directly (rather than via workspace.ts) in
-  // each of these cases: repeated dynamic imports of workspace.ts within a
-  // single file don't reliably pick up a fresh dockerRunner instance across
-  // vi.resetModules() calls, since workspace.ts closes over dockerRunner via
-  // a static import at its own module top. Importing dockerRunner.ts
-  // directly avoids that indirection and reliably reflects the current env.
   it("throws a clear config error when WORKSPACE_HOST_LOCATION is unset, instead of silently defaulting", async () => {
     clearRunnerEnv();
     vi.resetModules();
@@ -58,11 +48,6 @@ describe("dockerRunner path resolution off WORKSPACE_HOST_LOCATION", () => {
   });
 
   it("holds the host-mirroring invariant: getWorkspaceRoot() === getWorkspaceHostLocation()", async () => {
-    // This is the regression guard called out in the issue: a future edit
-    // reintroducing a fixed in-container path (e.g. "/app") independent of
-    // WORKSPACE_HOST_LOCATION would break SDK tools that expect
-    // host-identical paths, and would silently pass every other test that
-    // only checks one side or the other.
     clearRunnerEnv();
     process.env.WORKSPACE_HOST_LOCATION = "/another/custom/path";
     vi.resetModules();

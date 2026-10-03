@@ -1,5 +1,3 @@
-// Public API of agent-core. Widen it only when a consumer needs a symbol,
-// since every export is a contract with every consumer.
 export {
   CopilotClient,
   defineTool,

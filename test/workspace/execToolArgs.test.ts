@@ -31,16 +31,6 @@ describe('parseExecToolArgs', () => {
     expect(parseExecToolArgs({ command: 'x', timeoutSeconds: '120' }).timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
   });
 
-  // Regression test for a review finding: the schema promises
-  // "Commands are killed after 60s unless timeoutSeconds is given," but both
-  // production handlers (makeDockerToolHandler, makeRunTerminalDockerHandler)
-  // always pass their own session-scoped AbortSignal (fires on session abort
-  // only, never on a timer). Before this fix, an omitted timeoutSeconds left
-  // opts.timeoutMs undefined, so execWithDefaults took the
-  // "caller-signal-alone, no deadline" branch and the promised 60s kill never
-  // happened. buildExecOptions must always carry a real timeoutMs so that
-  // branch is never reachable from the tool boundary, regardless of which
-  // signal the handler composes it with.
   it('always yields a defined opts.timeoutMs from buildExecOptions, even with no signal-independent override requested', () => {
     const parsed = parseExecToolArgs({ command: 'sleep 100000' });
     const opts = buildExecOptions(parsed, undefined);

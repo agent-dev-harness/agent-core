@@ -1,63 +1,6 @@
-/**
- * Frozen, hand-captured copy of the Copilot SDK's own system-prompt
- * baseline (last re-captured 2026-09-15 against copilot 1.0.83; zero
- * tools, zero caller content -- see test/scripts/capture-system-message-baseline.ts).
- *
- * History: this capture was made while SessionWrapper drove `systemMessage`
- * in `replace` mode exclusively (`append`/`customize` modes splice in an
- * SDK-managed `tool_instructions` section re-derived from the live
- * `availableTools` on every turn, a KV-cache-prefix hazard; see sessionWrapper.integration.test.ts's now-fixed "freezes
- * systemMessage across resume" case). SessionWrapper has since moved back
- * to `customize` mode (SYS-REQ-028h), so the SDK injects its own baseline
- * sections again and this constant is no longer the basis of any live
- * prompt. It remains the drift-check fixture: the capture script and the
- * integration test compare a fresh SDK capture against it so an SDK
- * upgrade that changes its own baseline prompt is caught immediately.
- *
- * Two sections were deliberately dropped from the capture, not just
- * overlooked:
- *   - `<environment_context>` (cwd, git-root, OS) -- generated per-session
- *     from real runtime state; a frozen copy would tell the model the
- *     wrong working directory on every session after the one it was
- *     captured from.
- *   - `<session_context>` (session-state folder/plan.md path) -- contains
- *     a fresh UUID minted per session; a frozen copy would point at a
- *     session-state folder for a session that isn't this one.
- * Both were cut rather than templated back in -- if either becomes
- * necessary again, template it explicitly in `_createConfig()`, don't
- * paste it back into this constant.
- *
- * This is a point-in-time copy of SDK-owned prompt text, not something
- * this file derives -- it will silently go stale on any copilot-sdk
- * upgrade that changes its own baseline prompt. There is no dependency
- * tying this constant to the installed SDK version; bumping
- * `@github/copilot-sdk` must include re-running the capture script and
- * diffing this constant by hand.
- *
- * That staleness is no longer purely manual, though:
- * sessionWrapper.integration.test.ts's "does not drift from the installed
- * SDK's own baseline" case re-derives this same comparison in CI, on every
- * run, against whatever `@github/copilot-sdk` version is actually
- * installed -- using `stripSdkGeneratedDynamicSections` below so the two
- * places (this constant, that test) share one definition of which two
- * sections are expected to differ, instead of the test hand-rolling its
- * own copy of that knowledge. A real SDK prompt change now fails that test
- * immediately rather than sitting undetected until someone happens to
- * re-run the capture script by hand.
- */
+// Frozen copy of the SDK's own system-message baseline (zero tools, no caller content). Refresh it
+// after an SDK upgrade with test/scripts/capture-system-message-baseline.ts.
 
-/**
- * Strips the two dynamic, per-session sections (see above) out of a raw
- * system-message capture, exactly as they were cut when
- * `FROZEN_SDK_SYSTEM_MESSAGE_BASELINE` was hand-captured: each tag pair is
- * removed along with the one trailing newline directly after its closing
- * tag, leaving everything else -- including the blank line(s) already
- * before the tag -- untouched. This precise shape (not a generic
- * "collapse whitespace" strip) is what makes a stripped fresh capture
- * byte-identical to this file's constant when the SDK's baseline hasn't
- * changed; shared by the capture script and the staleness test so both
- * stay in lockstep with each other.
- */
 export function stripSdkGeneratedDynamicSections(raw: string): string {
   return raw
     .replace(/<environment_context>[\s\S]*?<\/environment_context>\n/, '')

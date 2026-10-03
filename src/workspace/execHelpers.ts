@@ -2,19 +2,6 @@ import * as path from "node:path";
 
 export type ExecResult = { stdout: string; stderr: string; exitCode: number | null };
 
-/**
- * Options accepted by the runners' shared `execCommand` wrapper.
- *
- * `workDir` — directory the command should run in, relative to the workspace
- * root or absolute (must stay inside the workspace). The container mount
- * binds the workspace at the identical path, so the host-resolved absolute
- * path is also the container-side path.
- *
- * `timeoutMs` — per-call deadline. When given, it is composed with any
- * caller-provided AbortSignal; when absent, an existing caller signal keeps
- * owning the deadline (unchanged historical semantics) and only the
- * no-signal case falls back to the runner's default timeout.
- */
 export interface ExecOptions {
   workDir?: string;
   timeoutMs?: number;
@@ -25,13 +12,6 @@ export const TRAVERSAL_ERROR =
 
 export type ResolvedWorkDir = { ok: true; dir: string } | { ok: false; error: string };
 
-/**
- * Resolves a tool-supplied workingDir against the workspace root.
- * Relative paths resolve inside the root; absolute paths are accepted only
- * when they stay inside it — anything escaping the root (including paths
- * that merely *look* contained before normalization, e.g. via "..") is
- * rejected as traversal.
- */
 export function resolveWorkDir(
   requested: string | undefined,
   workspaceRoot: string,
@@ -47,36 +27,15 @@ export function resolveWorkDir(
   return { ok: true, dir: absolute };
 }
 
-/**
- * POSIX single-quote a path for safe embedding in the `cd` prefix written
- * into the shell's stdin. Belt-and-braces on top of resolveWorkDir: the
- * resolved dir is already normalized, but it may still contain characters
- * the shell would treat as operators.
- */
 export function shellQuotePath(p: string): string {
   return `'` + p.replace(/'/g, `'\\''`) + `'`;
 }
 
-/**
- * Prepends a `cd` guard to the command stream so the shell starts in the
- * requested directory. Failing via `exit 91` gives a distinct, greppable
- * exit code for "workingDir does not exist" instead of an opaque OCI/spawn
- * error — and the bash diagnostic (`cd: x: No such file or directory`)
- * lands in stderr where the caller can act on it.
- */
 export function prependWorkDir(command: string, dir: string, workspaceRoot: string): string {
   if (dir === workspaceRoot) return command;
   return `cd ${shellQuotePath(dir)} || exit 91\n${command}`;
 }
 
-/**
- * If the deadline signal we armed fired (TimeoutError reason — not a caller
- * abort), relabel the result so the caller can tell "timed out" apart from
- * "the command failed": exit code 124 (the GNU `timeout` convention) plus
- * an explicit stderr note. Only applies when the process never exited on
- * its own (exitCode null); a result that already carries a real exit code
- * wins.
- */
 export function annotateTimeout(
   result: ExecResult,
   timeoutSignal: AbortSignal,
@@ -93,13 +52,6 @@ export function annotateTimeout(
   };
 }
 
-/**
- * The deadline+workDir-aware wrapper both runners share. Keeps the
- * historical contract: a caller-provided signal alone is honored verbatim
- * (gates and other internal callers compose their own timeouts); an
- * explicit `opts.timeoutMs` is composed with it; no signal at all gets the
- * runner's default deadline, and a genuine timeout is annotated (exit 124).
- */
 export async function execWithDefaults(
   run: (command: string, signal?: AbortSignal, workDir?: string) => Promise<ExecResult>,
   command: string,

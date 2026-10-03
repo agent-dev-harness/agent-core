@@ -109,14 +109,11 @@ describe("docker runner workingDir handling", () => {
 
     const p = execCommand("sleep 100", undefined, { timeoutMs: 1500 });
 
-    // Poll until the 1500ms deadline has fired and the kill path ran.
     for (let i = 0; i < 40 && mainChild.kill.mock.calls.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
     }
     assert.ok(mainChild.kill.mock.calls.length > 0, "Expected the host-side kill to fire on timeout");
 
-    // Simulate the exec closing as killed (null code); the wrapper then
-    // waits for the container-side cleanup before resolving.
     mainChild.emit("close", null);
     killChild.emit("close", 0);
 

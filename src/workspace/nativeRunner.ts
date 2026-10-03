@@ -5,32 +5,14 @@ import * as path from "path";
 import { killProcessGroup } from "./processGroup";
 import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
-// fs.mkdtempSync atomically creates a uniquely-named directory under the
-// OS temp root (respects TMPDIR/TEMP/TMP) and returns its path — avoiding
-// the need to hand-roll uniqueness with crypto.randomUUID() plus a
-// separate mkdirSync call.
 const FIXED_WORKSPACE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "app-"));
 
 const FIXED_PATH = "/usr/local/bin:/usr/bin:/bin";
 
-// Create the workspace root immediately at module load so spawn() never
-// fails with ENOENT when setting cwd. This runs once before any async
-// calls and is safe as a synchronous operation at module initialization.
 fs.mkdirSync(FIXED_WORKSPACE_ROOT, { recursive: true });
 
-// Default timeout for user-supplied commands. Callers can override by passing
-// their own AbortSignal; this deadline applies only when none is provided.
 const EXEC_TIMEOUT_MS = 60_000;
 
-/**
- * Executes a command natively on the host (AI Studio mode).
- * Commands run inside the workspace root with only git-specific environment
- * variables set — no host environment is leaked.
- *
- * `workDir` (already resolved and traversal-checked by the shared wrapper)
- * selects the directory the command runs in, applied via the same `cd`
- * guard as the docker runner so both runners behave identically.
- */
 export async function runNativeProcess(
   command: string,
   signal?: AbortSignal,
@@ -61,12 +43,6 @@ export async function runNativeProcess(
       signal.addEventListener("abort", onAbort);
       if (signal.aborted) {
         killChild();
-        // Wait for the OS to actually reap the process group before
-        // resolving, rather than assuming SIGKILL took effect the instant
-        // it was sent — mirrors the docker runner's wait-for-cleanup
-        // behavior so callers get consistent "resolved means dead" semantics
-        // across both runners. Bounded by the same style of fallback timer
-        // used elsewhere in this file in case close never fires.
         const timer = setTimeout(() => {
           child.removeAllListeners("close");
           resolve({ stdout: "", stderr: "Native process aborted", exitCode: 1 });
@@ -110,10 +86,6 @@ export async function runNativeProcess(
       if (signal) signal.removeEventListener("abort", onAbort);
       killChild();
 
-      // Wait for the process to fully exit before resolving. A fallback timer
-      // guards against close never firing (e.g. the process ignores SIGKILL).
-      // Whichever branch wins cancels the other to ensure resolve() is called
-      // exactly once and neither handler is left dangling.
       const timer = setTimeout(() => {
         child.removeAllListeners("close");
         resolve({
@@ -135,15 +107,6 @@ export async function runNativeProcess(
   });
 }
 
-/**
- * Executes a command natively. Mirrors the execCommand interface
- * from dockerRunner.ts for use in AI Studio.
- *
- * If no AbortSignal is supplied, a default timeout of EXEC_TIMEOUT_MS is
- * applied to prevent LLM-generated commands from hanging indefinitely.
- * `opts.timeoutMs` overrides that default (composed with any caller
- * signal); `opts.workDir` selects the directory the command runs in.
- */
 export async function execCommand(
   command: string,
   signal?: AbortSignal,

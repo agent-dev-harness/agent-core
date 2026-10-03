@@ -1,141 +1,52 @@
 # agent-core — background notes
 
-Non-obvious patterns and past debugging lessons, written by agents during development
-and not reviewed. Parts may be out of date: check a claim against the code before
-relying on it. The reviewed instructions are in `AGENTS.md`.
-
-## Map
-
-- `README.md`: public API (entrypoints) and the environment variables the package reads.
-- `docs/requirements.md`: EARS requirements (SYS-REQ-022, 023, 024, 026 and 027 families), with a map from the README goals to the checks that enforce them.
-- `docs/SessionWrapper-spec.md`: SessionWrapper tool enablement and cache stability (SYS-REQ-028).
-- `docs/copilot-sdk-record-replay.md`: the CapiProxy record/replay harness the integration tests use.
+Unreviewed notes from past work. Check a claim against the code before relying on it.
 
 ## Checks
 
-`ci/check.sh` is the merge gate, run by CI as-is: `npm ci`, lint, build, test.
-`npm run lint` runs `tsc`, ESLint, `scripts/check-explicit-any.ts` and
-`scripts/check-boundary.ts`; `npm test` runs vitest; `npm run build` emits `dist/`.
-Gate files (`ci/`, `.github/`, lint/tsconfig/vitest config, the check scripts) have
-CODEOWNERS: don't loosen them to get a change through.
-The boundary guard fails if anything under `src/`, `test/` or `scripts/` imports from
-outside the package (static, dynamic `import()`, `require()` or `vi.mock` paths) other
-than Node builtins and its short third-party allowlist. Widening that allowlist, or the
-public entrypoints, changes the package's contract with every consumer: do it only
-when a consumer needs it.
+`ci/check.sh` is the merge gate and CI runs it as-is: `npm ci`, lint (`tsc`, ESLint,
+`scripts/check-explicit-any.ts`, `scripts/check-boundary.ts`), build, test. Gate files
+(`ci/`, `.github/`, lint/tsconfig/vitest config, the check scripts) have CODEOWNERS.
+The boundary guard fails on any import from outside the package other than Node
+builtins and a short third-party allowlist.
 
-## SDK imports go through src/copilotSdk/boundary.ts
+Tests run one file at a time (`vitest.config.ts`) because they share the workspace
+directory and process-level state.
 
-`@github/copilot-sdk` is imported only in `src/copilotSdk/boundary.ts` (SYS-REQ-024),
-which re-exports the types and wraps `CopilotClient`; ESLint enforces it. Sessions are
-created and resumed only through `SessionWrapper` (SYS-REQ-026), also
-enforced by ESLint.
+`npm run verify:docker` checks the Docker runner against a real, throwaway container.
 
-## Tests share state: keep them sequential
+## Copilot SDK behaviour worth knowing
 
-`vitest.config.ts` runs one file at a time in a fresh worker (`maxWorkers: 1`,
-`fileParallelism: false`, `isolate: true`). Tests share the workspace directory, Docker
-and process-level state; don't turn on parallelism to speed them up.
+- `resumeSession()` does not carry `systemMessage` over from the session it resumes.
+  Leave it out and the SDK silently falls back to its default `copilot-cli` prompt.
+- `resumeSession()` also drops handler-backed custom tools unless `tools` is passed again.
+- `CopilotClient.createSession`/`resumeSession` in `boundary.ts` default `autoApproveAll`
+  to `true`, which replaces any `onPermissionRequest` you pass. `SessionWrapper` always
+  passes `false`.
+- `sendAndWait(prompt, timeout)` waits 60s when no timeout is given. When it times out
+  the call throws but the turn keeps running.
+- `view`, `grep` and `glob` share the permission kind `read`, so enabling one without the
+  others can't be told apart at the permission layer.
+- Changing `availableTools` or the `tools` list between turns regenerates the system
+  message and busts the prompt cache, which is why `SessionWrapper` fixes both at
+  construction and enables tools through permissions instead.
 
-## Orphan processes on abort — resolved via detached process groups
+## Stall watchdog
 
-`dockerRunner.ts` and `nativeRunner.ts` spawn with `{ detached: true }` and kill via
-`killProcessGroup()` (`src/workspace/processGroup.ts`), signaling the whole process
-group rather than just the direct child. Docker mode additionally runs a container-side
-kill pass keyed on an `EXEC_RUN_ID` marker to catch processes the group-kill can't reach
-inside the container's PID namespace. If debugging a "still running after abort"
-report, check `processGroup.ts` and the container-side kill command in
-`dockerRunner.ts` first — this was a known gap, but is now handled.
+`runForcedToolTurn`, `sendAndWaitWithAbort` and the silence tracker were built to recover
+from dead upstream connections. Every investigated case was a slow but healthy turn
+(long reasoning, or many tool calls), and the SDK gives no signal that tells the two
+apart. `runForcedToolTurnUntilTimeout` replaced it and is what callers use; the watchdog
+code is unused.
 
-## Stall-watchdog recovery retired in favor of a single hard timeout
+## run_terminal_docker
 
-`runForcedToolTurn`'s stall watchdog (`sendAndWaitWithAbort`'s 90s-silence
-threshold, `sendWithStallRetry`'s resume-then-fresh-session ladder) was built to
-recover from dead upstream connections. Every investigated case turned out to be
-a slow-but-healthy turn -- long model reasoning, or one chaining many tool calls --
-misdiagnosed as a stall, not an actual dead connection. The watchdog was patched to
-tolerate silence during active tool *execution*, but silence during model
-reasoning/generation (the
-observed pattern, `lastEventType=session.usage_info`) has no reliable SDK signal to
-distinguish from a real stall. Recovering from a false positive also has its own
-cost: `resumeSession()` re-injects the SDK's default system message and busts the
-prompt cache (see the next section), making the "recovered" turn slower -- which
-can itself
-look like a second stall.
+Arguments are parsed and clamped in `src/execTool.ts`; `workingDir` is resolved and
+checked in `src/workspace/execHelpers.ts`. A missing directory exits 91; a deadline kill
+exits 124 with a note on stderr. Handlers pass a session-scoped abort signal that only
+fires on teardown, so `parseExecToolArgs` must always return a `timeoutMs`, or a hung
+command is never killed.
 
-`runForcedToolTurnUntilTimeout` (`toolCallEnforcement.ts`) is now the path all
-callers use: same tool-not-called nudge/retry loop as `runForcedToolTurn`, but a
-single hard timeout racing `sendAndWait` directly, with no watchdog and no
-mid-turn resume.
-
-`runForcedToolTurn`, `sendAndWaitWithAbort`, `STALL_TIMEOUT_MS`, `isStallError`,
-and their three existing test files are intentionally left in place, dormant, not
-deleted -- **do not delete them as part of unrelated cleanup.** If a genuine stall
-is ever observed independently of turn duration, that's the code to reach for
-again. Its silence-detection logic is a standalone reusable utility -- see
-"Execution-aware silence tracking" below.
-
-## resumeSession() drops the system prompt unless you re-pass it
-
-`client.resumeSession()` (base SDK, wrapped by `CopilotClient.resumeSession` in
-`src/copilotSdk/boundary.ts`) does not inherit `systemMessage` from the session
-being resumed. Any caller building a `resumeConfig` from scratch and omitting
-`systemMessage` will silently fall back to the SDK's full default `copilot-cli`
-system prompt (task/sub-agent, sql, report_intent, submit_code_review docs,
-etc.) for the rest of the turn -- not an error, just a quietly different agent
-for the remainder of the session.
-
-This surfaced when a forced tool turn's nudge-retry resume path
-(`runForcedToolTurn`'s `resumeConfig` in `toolCallEnforcement.ts`) wasn't
-carrying `systemMessage` across the resume, even though the field itself was
-correct. The fix was to also pass it on resume, not to change the field.
-`SessionWrapper` now resends it on every resume (SYS-REQ-028g).
-
-This is a general SDK usage rule -- it applies to **any** caller that resumes a
-session directly instead of through `SessionWrapper`.
-
-## Execution-aware silence tracking
-
-`createExecutionAwareSilenceTracker` (`toolCallEnforcement.ts`) is a standalone
-utility for the "how long has the SDK gone quiet" check the (dormant) stall
-watchdog above uses: it measures time since the last SDK event, but treats time
-spent inside a tool call -- between `tool.execution_start` and
-`tool.execution_complete`, the only events bookending it -- as *not* silence, so a
-slow-but-healthy tool (`npx tsc`, a large `grep`, a slow `gh` call) isn't
-misdiagnosed as a dead connection.
-
-It's event-driven rather than self-subscribing to `session.on` (feed it events via
-`recordEvent`), since the SDK only supports one active listener per session and
-callers typically need their own listener for other event types too. It's
-currently only wired up inside `sendAndWaitWithAbort`'s dormant watchdog, but was
-pulled out on its own so the pattern doesn't have to be rediscovered if it's ever
-needed by a new call site -- reach for it directly rather than re-deriving the
-`tool.execution_start`/`tool.execution_complete` bookkeeping from scratch.
-
-
-## run_terminal_docker — one shared arg/truncation boundary
-
-`run_terminal_docker` args (`workingDir`, `timeoutSeconds`) are parsed, clamped, and
-resolved in exactly two shared places: `src/execTool.ts` (parse + clamp +
-output truncation) and `src/workspace/execHelpers.ts` (`resolveWorkDir` +
-timeout annotation). `makeRunTerminalDockerHandler` in `src/execTool.ts`, and any
-handler a caller writes (for example, one that streams results), funnels through
-them. Don't
-re-roll arg parsing in a new call site — the handlers previously read `workingDir`
-only to log it (and the auditor one to check `..`) while silently running everything
-at the workspace root, because `cd` doesn't persist across the per-call `bash -s`
-process. workingDir is applied as a `cd <dir> || exit 91` guard inside the command
-stream (exit 91 = "requested directory missing", traversal = rejected before any
-spawn). A genuine deadline kill is annotated: exit 124 (GNU timeout convention) plus
-an explicit stderr note.
-
-`execWithDefaults` (execHelpers.ts) only enforces a deadline when `opts.timeoutMs`
-is set — a caller that passes just an AbortSignal and no `opts.timeoutMs` owns the
-deadline itself and gets no automatic kill. That's fine for internal callers that
-invoke the runners' `execCommand` directly (e.g. gates own their timing). It is NOT
-fine for the `run_terminal_docker` tool boundary: handlers pass a
-session-scoped `abortController.signal` that only fires on session teardown, never
-on a timer, so `parseExecToolArgs` must always return a populated `timeoutMs` (the
-clamped model-supplied value, or `DEFAULT_TIMEOUT_SECONDS` = 60s) — never leave it
-`undefined` when `timeoutSeconds` is omitted, or the tool's schema promise of a
-default kill silently stops applying.
+Both runners spawn detached and kill the whole process group. Docker mode also kills
+by an `EXEC_RUN_ID` marker inside the container, which the host can't reach through
+the group.

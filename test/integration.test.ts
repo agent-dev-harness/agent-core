@@ -10,18 +10,13 @@ describe('Copilot SDK Client Integration Tests', () => {
   it('Runs integration test with mock CapiProxy playback', { timeout: 60000 }, async () => {
     console.log('Starting Integration Test with CapiProxy...');
     
-    // 1. Start the proxy
     const proxy = new CapiProxy();
     const proxyUrl = await proxy.start();
     console.log(`CapiProxy listening at ${proxyUrl}`);
 
-    // This test's tool handlers are fully mocked (no real command execution),
-    // but workingDirectory is still kept isolated from the repo's own source
-    // tree as a defensive precaution rather than pointed at process.cwd().
     const tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-integration-'));
 
     try {
-      // 2. Set proxy dummy configurations
       await proxy.setCopilotUserByToken("fake-token", {
         login: "test-user",
         copilot_plan: "individual_pro",
@@ -39,7 +34,6 @@ describe('Copilot SDK Client Integration Tests', () => {
       });
       console.log(`Loaded snapshot from ${snapshotPath}`);
 
-      // 3. Construct CopilotClient pointing to the proxy
       const client = new CopilotClient({
         workingDirectory: tempWorkDir,
         logLevel: 'none',
@@ -55,7 +49,6 @@ describe('Copilot SDK Client Integration Tests', () => {
       console.log('CopilotClient started.');
 
       try {
-        // 4. Create Session 
         const session = await client.createSession({
           model: 'claude-sonnet-4.5',
           provider: {
@@ -83,7 +76,6 @@ describe('Copilot SDK Client Integration Tests', () => {
 
         console.log('Session created. Sending prompt...');
 
-        // 5. Send message and check proxy playback
         const responseStream = await session.sendAndWait({ prompt: 'Run the gate check.' }, 30000);
         
         console.log('Got response. Response string:', responseStream);

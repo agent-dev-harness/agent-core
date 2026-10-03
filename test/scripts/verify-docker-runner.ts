@@ -1,10 +1,5 @@
-/**
- * Checks the Docker runner against a real container, which the test suite
- * can't do (it mocks child_process). Starts a throwaway container with a temp
- * workspace bind-mounted at the same path, runs the checks, then removes it.
- *
- * Usage: npm run verify:docker   (needs a running Docker daemon)
- */
+// Checks the Docker runner against a real, throwaway container (the test suite mocks child_process).
+// Usage: npm run verify:docker   (needs a running Docker daemon)
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
