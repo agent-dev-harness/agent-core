@@ -1,5 +1,7 @@
 # agent-core
 
+Read `README.md` first: it says what agent-core is for and the goals every change must keep.
+
 ## Never do
 
 - Never push to main.

@@ -1,12 +1,28 @@
 # @agent-dev-harness/agent-core
 
-The session core behind copilot-ui's agents: `SessionWrapper` (the only way to create or
-resume a Copilot SDK session), forced tool-call turns with a hard timeout, audit sessions,
-the multi-provider registry and HTTP proxy, and the Docker/native workspace runners with
-a `GitSandbox`.
+agent-core is a private TypeScript library that runs AI agent sessions on the GitHub
+Copilot SDK. It has three parts:
 
-Extracted from copilot-ui (issue chrislyclau/copilot-ui#485). See `KNOWLEDGE.md` for design
-notes and `docs/` for requirements.
+| Part | What it does |
+|---|---|
+| **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
+| **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't, under one hard time limit. |
+| **Providers** | `ProviderRegistry` plus an HTTP proxy that routes models to OpenAI, Anthropic, OpenRouter, Gemini or a local server. |
+
+## Goals
+
+0. **Most important requirement:** `run_terminal_docker` completely replaces the bash tool.
+1. **One way in for anything risky:** SDK imports, session creation and workspace paths each
+   have one allowed route, and lint checks enforce it.
+2. **No hangs:** every turn and every command has a deadline.
+3. **Agents stay in the workspace:** commands run in the sandbox, and paths can't reach
+   outside it.
+4. **A stable prompt cache:** a resumed session sends the same tools and system prompt as
+   before.
+
+Out of scope: model and role configuration. The caller passes these in.
+
+`docs/` holds the EARS requirements. `KNOWLEDGE.md` holds unreviewed background notes.
 
 ## Requirements
 
