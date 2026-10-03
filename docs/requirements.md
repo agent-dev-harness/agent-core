@@ -14,7 +14,7 @@ end.
 |---|---|---|
 | 0. `run_terminal_docker` completely replaces the bash tool | — | `src/copilotSdk/sessionWrapper.test.ts`, "SessionWrapper never allows bash on the host" |
 | 1. One way in for anything risky | SYS-REQ-023, 024, 026, 026c, 027e | `eslint.config.js` (`npm run lint`) |
-| 2. No hangs: every `run_terminal_docker` command has a deadline | — | `test/workspace/execToolArgs.test.ts` (default timeout, clamping); `test/workspace/execToolWorkingDir.test.ts` ("execCommand timeout handling", "makeAuditorExecToolHandler deadline enforcement") |
+| 2. No hangs: every `run_terminal_docker` command has a deadline | — | `test/workspace/execToolArgs.test.ts` (default timeout, clamping); `test/workspace/execToolWorkingDir.test.ts` ("execCommand timeout handling", "makeRunTerminalDockerHandler deadline enforcement") |
 | 3. Agents stay in the workspace | SYS-REQ-022, 023 | `test/workspace/execToolArgs.test.ts` ("resolveWorkDir"); `test/workspace/execToolWorkingDir.test.ts` ("rejects traversal without spawning anything") |
 | 4. A stable prompt cache | SYS-REQ-026a, 026b, 027b; SYS-REQ-028 family | `src/copilotSdk/sessionWrapper.test.ts` |
 

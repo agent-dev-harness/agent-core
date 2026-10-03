@@ -1,9 +1,7 @@
 /**
- * The run_terminal_docker tool definition, package-side (extraction plan
- * phase 2b). agentCore session builders (auditorHelper) attach this exec
- * tool to every auditor session, so the definition itself moves into the
- * package; the app's src/config/tools.ts re-exports it during the
- * transition. All other audit/PBI/review tool definitions stay app-side.
+ * The run_terminal_docker tool definition. Callers pair it with
+ * `makeRunTerminalDockerHandler` (execTool.ts) to give a session the tool
+ * that replaces the built-in bash tool.
  */
 
 export const RUN_TERMINAL_DOCKER_TOOL = {

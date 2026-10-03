@@ -68,8 +68,8 @@ look like a second stall.
 `runForcedToolTurnUntilTimeout` (`toolCallEnforcement.ts`) is now the path all
 callers use: same tool-not-called nudge/retry loop as `runForcedToolTurn`, but a
 single hard timeout racing `sendAndWait` directly, with no watchdog and no
-mid-turn resume. `executeAuditSession` (`auditorHelper.ts`) and all three
-copilot-ui's `gateLoop.ts` forced-tool-turn call sites use it.
+mid-turn resume. All three of copilot-ui's `gateLoop.ts` forced-tool-turn call
+sites use it.
 
 `runForcedToolTurn`, `sendAndWaitWithAbort`, `STALL_TIMEOUT_MS`, `isStallError`,
 and their three existing test files are intentionally left in place, dormant, not
@@ -88,24 +88,20 @@ system prompt (task/sub-agent, sql, report_intent, submit_code_review docs,
 etc.) for the rest of the turn -- not an error, just a quietly different agent
 for the remainder of the session.
 
-This surfaced as issue #208: `executeAuditSession`'s nudge-retry resume path
+This surfaced as issue #208: a forced tool turn's nudge-retry resume path
 (`runForcedToolTurn`'s `resumeConfig` in `toolCallEnforcement.ts`) wasn't
-carrying `systemMessage` across the resume, even though the field itself
-(the curated content string assembled by `buildAuditorSessionSettings` in
-`auditorHelper.ts`) was correct. The fix was to also pass it on resume, not
-to change the field.
+carrying `systemMessage` across the resume, even though the field itself was
+correct. The fix was to also pass it on resume, not to change the field.
+`SessionWrapper` now resends it on every resume (SYS-REQ-028g).
 
-This is a general SDK usage rule, not specific to PR review or to
-`executeAuditSession` -- it applies to **any** future caller that resumes a
-session directly. copilot-ui's `scripts/run-issue-task.ts` (see the issue #221 tracking comment near
-its `PORT` constant) is one such caller: it goes through
-`runForcedToolTurnUntilTimeout` directly rather than through
-`executeAuditSession`, and already forwards `systemMessage` in its retry
-config, so it isn't currently exposed to the #208 failure mode. It also still
-lacks the rest of `executeAuditSession`'s accumulated protections (the
-nudge/retry loop's other edge cases from #188/#191/#207, and any future
-watchdog/mid-turn-resume work) -- re-verify it against those issues before
-assuming full parity if this script's session handling changes.
+This is a general SDK usage rule, not specific to PR review -- it applies to
+**any** future caller that resumes a session directly. copilot-ui's
+`scripts/run-issue-task.ts` (see the issue #221 tracking comment near its `PORT`
+constant) is one such caller: it goes through `runForcedToolTurnUntilTimeout`
+directly and already forwards `systemMessage` in its retry config, so it isn't
+currently exposed to the #208 failure mode. Re-verify it against the nudge/retry
+loop's other edge cases (#188/#191/#207) if this script's session handling
+changes.
 
 ## Execution-aware silence tracking
 
@@ -133,7 +129,7 @@ resolved in exactly two shared places: `src/execTool.ts` (parse + clamp +
 output truncation) and `src/workspace/execHelpers.ts` (`resolveWorkDir` +
 timeout annotation). Both exec handlers (`makeDockerToolHandler` in
 copilot-ui's `src/orchestration/toolHandlers.ts`
-and `makeAuditorExecToolHandler` in `auditorHelper.ts`) funnel through them. Don't
+and `makeRunTerminalDockerHandler` in `src/execTool.ts`) funnel through them. Don't
 re-roll arg parsing in a new call site — the handlers previously read `workingDir`
 only to log it (and the auditor one to check `..`) while silently running everything
 at the workspace root, because `cd` doesn't persist across the per-call `bash -s`

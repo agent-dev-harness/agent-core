@@ -1,9 +1,10 @@
 import type { ExecOptions } from "./workspace";
+import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from "./workspace";
 
 /**
  * Shared boundary between the `run_terminal_docker` tool arguments (LLM
  * supplied) and the workspace exec runners. Both handlers
- * (`makeDockerToolHandler` and `makeAuditorExecToolHandler`) funnel their
+ * (`makeDockerToolHandler` and `makeRunTerminalDockerHandler`) funnel their
  * args through this module so the two entry points can't drift apart on
  * parsing, clamping, or output capping.
  */
@@ -78,4 +79,32 @@ export function buildExecOptions(parsed: ParsedExecToolArgs, workDir: string | u
   const opts: ExecOptions = { timeoutMs: parsed.timeoutMs };
   if (workDir !== undefined) opts.workDir = workDir;
   return opts;
+}
+
+/**
+ * Headless (non-SSE) handler for `run_terminal_docker`: a plain
+ * request/response tool call, for sessions with no SSE stream to push
+ * `tool.result` events onto (see `makeDockerToolHandler` in toolHandlers.ts,
+ * which requires one).
+ *
+ * Routes through `getExecCommand()` (see SYS-REQ-020/023) exactly like the
+ * SSE variant, so these sessions get the same GitSandbox locking,
+ * GIT_TIMEOUT_MS/EXEC_TIMEOUT_MS enforcement, and Docker-vs-native routing
+ * as every other centralized-workspace consumer, instead of falling back to
+ * the copilot SDK's own default bash/view/edit tools operating directly on
+ * `CopilotClient.workingDirectory` (issue #299).
+ */
+export function makeRunTerminalDockerHandler(abortSignal?: AbortSignal) {
+  return async (args: unknown) => {
+    const parsed = parseExecToolArgs(args);
+    const resolved = resolveWorkDir(parsed.workDir, getWorkspaceRoot());
+    if (!resolved.ok) {
+      // Cheap synchronous rejection: no exec process is ever spawned, and
+      // getExecCommand() is deliberately not even consulted for this case.
+      return { stdout: '', stderr: resolved.error, exitCode: 1 };
+    }
+    const execCommand = getExecCommand();
+    const result = await execCommand(parsed.command, abortSignal, buildExecOptions(parsed, resolved.dir));
+    return truncateExecResult(result);
+  };
 }

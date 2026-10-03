@@ -33,7 +33,7 @@ describe('parseExecToolArgs', () => {
 
   // Regression test for the PR #465 review finding: the schema promises
   // "Commands are killed after 60s unless timeoutSeconds is given," but both
-  // production handlers (makeDockerToolHandler, makeAuditorExecToolHandler)
+  // production handlers (makeDockerToolHandler, makeRunTerminalDockerHandler)
   // always pass their own session-scoped AbortSignal (fires on session abort
   // only, never on a timer). Before this fix, an omitted timeoutSeconds left
   // opts.timeoutMs undefined, so execWithDefaults took the

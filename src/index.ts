@@ -32,12 +32,6 @@ export {
 } from './toolCallEnforcement';
 
 export {
-  executeAuditSession,
-  makeAuditorExecToolHandler,
-} from './auditorHelper';
-export type { ToolDefinition } from './auditorHelper';
-
-export {
   SlidingWindowCircularBuffer,
   cleanSubprocessLogs,
   clearCleanCache,
@@ -46,6 +40,7 @@ export {
 
 export {
   buildExecOptions,
+  makeRunTerminalDockerHandler,
   parseExecToolArgs,
   truncateExecResult,
 } from './execTool';

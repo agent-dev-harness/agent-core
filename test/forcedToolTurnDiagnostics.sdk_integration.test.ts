@@ -3,8 +3,58 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { CapiProxy } from './harness/CapiProxy';
-import { executeAuditSession, ToolDefinition } from '../src/auditorHelper';
+import { CopilotClient } from '../src/copilotSdk/boundary';
+import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
+import { runForcedToolTurnUntilTimeout } from '../src/toolCallEnforcement';
 import { ProviderRegistry } from '../src/providerRegistry';
+
+
+const SYSTEM_PROMPT = 'You are an auditor. Report findings via the tool.';
+const USER_PROMPT = 'Audit this change for security issues.';
+
+// Drives one forced tool turn the way a caller of this package would: its own
+// CopilotClient, a SessionWrapper with the submission tool, and
+// runForcedToolTurnUntilTimeout.
+async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promise<unknown> {
+  const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
+    provider: 'gemini',
+    model: 'gemini-3.1-flash-lite',
+  });
+  const client = new CopilotClient({ workingDirectory: workDir, logLevel: 'none', useLoggedInUser: false });
+  let result: unknown;
+  await client.start();
+  try {
+    const submitFinding = {
+      name: 'submit_finding',
+      description: 'Submit an audit finding',
+      parameters: {
+        type: 'object',
+        properties: { pass: { type: 'boolean' } },
+        required: ['pass'],
+      },
+      handler: async (args: unknown) => {
+        result = args;
+        return { status: 'received' };
+      },
+    };
+    const wrapper = new SessionWrapper(
+      client,
+      { builtins: ['view', 'edit', 'grep', 'glob'], custom: [submitFinding] },
+      { ...(executionConfig.provider ? { provider: executionConfig.provider } : {}), streaming: false },
+    )
+      .setModelName(executionConfig.model)
+      .setSystemPrompt(SYSTEM_PROMPT);
+    const turn = await runForcedToolTurnUntilTimeout(wrapper, 'submit_finding', USER_PROMPT, {
+      timeoutMs: 30000,
+      maxRetries,
+      getResult: () => result,
+    });
+    await turn.session.disconnect();
+    return turn.result;
+  } finally {
+    await client.stop();
+  }
+}
 
 // Exercises the Issue #180 diagnostic logging (sendAndWaitWithAbort's
 // tool.execution_start / usage-telemetry logs) against a REAL CopilotClient/CopilotSession talking to the CapiProxy
@@ -15,23 +65,10 @@ import { ProviderRegistry } from '../src/providerRegistry';
 // tool call, so this catches drift between our assumptions (in
 // toolCallEnforcement.ts) and the SDK's real contract that a fully mocked
 // session/client can't.
-describe('Audit session diagnostics against real SDK/proxy transport (Issue #180)', () => {
+describe('Forced tool turn diagnostics against real SDK/proxy transport (Issue #180)', () => {
   let proxy: CapiProxy;
   let proxyUrl: string;
   const tmpWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-rotation-sdk-'));
-  const systemPrompt = 'You are an auditor. Report findings via the tool.';
-  const userPrompt = 'Audit this change for security issues.';
-  const tool: ToolDefinition = {
-    function: {
-      name: 'submit_finding',
-      description: 'Submit an audit finding',
-      parameters: {
-        type: 'object',
-        properties: { pass: { type: 'boolean' } },
-        required: ['pass'],
-      },
-    },
-  };
 
   const ORIGINAL_ENV = { ...process.env };
 
@@ -68,24 +105,8 @@ describe('Audit session diagnostics against real SDK/proxy transport (Issue #180
     errorSpy.mockRestore();
   });
 
-  it('logs the real tool.execution_start event emitted by the SDK when the audit tool actually runs', { timeout: 30000 }, async () => {
-    const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
-      provider: 'gemini',
-      model: 'gemini-3.1-flash-lite',
-    });
-
-    await executeAuditSession(
-      tmpWorkDir,
-      executionConfig,
-      systemPrompt,
-      tool,
-      userPrompt,
-      {},
-      undefined,
-      30000,
-      undefined,
-      0
-    );
+  it('logs the real tool.execution_start event emitted by the SDK when the submission tool actually runs', { timeout: 30000 }, async () => {
+    await runSubmitFindingTurn(tmpWorkDir, 0);
 
     // This is the real SDK's own event, not a hand-mocked one -- confirms
     // the toolName field name/shape assumption in sendAndWaitWithAbort

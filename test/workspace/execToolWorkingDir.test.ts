@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from '../../src/workspace';
-import { makeAuditorExecToolHandler } from '../../src/auditorHelper';
+import { makeRunTerminalDockerHandler } from '../../src/execTool';
 
 // Under vitest the workspace module routes to the native runner
 // (isAIStudio(): VITEST=true), so these tests exercise the real
@@ -75,7 +75,7 @@ describe('execCommand timeout handling (native runner)', () => {
   });
 });
 
-describe('makeAuditorExecToolHandler deadline enforcement (PR #465 regression)', () => {
+describe('makeRunTerminalDockerHandler deadline enforcement (PR #465 regression)', () => {
   // Reproduces the production call shape: gateLoop always passes a
   // session-scoped AbortController.signal that only fires on session
   // teardown, never on a timer (see gateLoop.ts:994, :1819). Before the
@@ -88,7 +88,7 @@ describe('makeAuditorExecToolHandler deadline enforcement (PR #465 regression)',
   // path: a long-lived non-timer signal must not suppress the deadline.
   it('still enforces a deadline when composed with a long-lived, non-timer session signal', async () => {
     const sessionAbort = new AbortController(); // never fires — models session lifetime
-    const handler = makeAuditorExecToolHandler(sessionAbort.signal);
+    const handler = makeRunTerminalDockerHandler(sessionAbort.signal);
 
     const started = Date.now();
     // timeoutSeconds clamps to a 30s floor (MIN_TIMEOUT_SECONDS), so the
@@ -104,9 +104,9 @@ describe('makeAuditorExecToolHandler deadline enforcement (PR #465 regression)',
   }, 50_000);
 });
 
-describe('makeAuditorExecToolHandler end-to-end (native runner)', () => {
+describe('makeRunTerminalDockerHandler end-to-end (native runner)', () => {
   it('honors workingDir, timeoutSeconds, and truncation through the production handler', async () => {
-    const handler = makeAuditorExecToolHandler();
+    const handler = makeRunTerminalDockerHandler();
 
     const wd = await handler({ command: 'cat marker.txt', workingDir: 'parity-sub' });
     expect(wd).toMatchObject({ stdout: 'inside-subdir', exitCode: 0 });

@@ -37,14 +37,14 @@ Out of scope: model and role configuration. The caller passes these in.
 
 | Import | Contents |
 |---|---|
-| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`, `FORCED_TOOL_TURN_HARD_TIMEOUT_MS`; `executeAuditSession`, `makeAuditorExecToolHandler`, `ToolDefinition`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`, `FORCED_TOOL_TURN_HARD_TIMEOUT_MS`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
 | `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `setActiveOpenRouterSessionId` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
 | `@agent-dev-harness/agent-core/testing` | `nativeRunner`, for test harnesses that drive the native runner directly |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
-`executeAuditSession`. To subclass `GitSandbox` (for example, to add branch-per-task
+`makeRunTerminalDockerHandler`. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
 ## Environment variables
