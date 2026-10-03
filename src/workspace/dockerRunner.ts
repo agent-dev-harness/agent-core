@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { BASH_SCRIPT_ARGS, ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -113,7 +113,7 @@ export async function runDockerProcess(
       workspaceRoot,
       getContainerName(),
       "bash",
-      "-s",
+      ...BASH_SCRIPT_ARGS,
     ], { detached: true });
 
     const CONTAINER_KILL_GRACE_MS = 1500;
