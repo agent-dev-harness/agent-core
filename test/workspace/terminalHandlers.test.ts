@@ -71,7 +71,7 @@ vi.mock('../../src/workspace/workspace', () => ({
   },
 }));
 
-const { makeTerminalDockerHandlers } = await import('../../src/execTool');
+const { makeTerminalDockerHandlers, MAX_UNREAD_EXITED_TERMINALS } = await import('../../src/execTool');
 
 function lastRun(): FakeRun {
   const entry = started[started.length - 1];
@@ -157,6 +157,20 @@ describe('run_terminal_docker', () => {
     expect(lastRun().killed).toBe(true);
     expect(result).toMatchObject({ status: 'exited', exitCode: null, note: 'Stopped.' });
     expect((await terminal.list_terminal_docker()).terminals).toEqual([]);
+  });
+
+  it('forgets the oldest finished commands once more than the cap are unread', async () => {
+    const terminal = makeTerminalDockerHandlers();
+    for (let i = 0; i <= MAX_UNREAD_EXITED_TERMINALS; i++) {
+      await terminal.run_terminal_docker({ command: `job ${i}`, mode: 'async' });
+      lastRun().exit(0);
+    }
+    await new Promise((r) => setTimeout(r, 0));
+
+    const { terminals } = await terminal.list_terminal_docker();
+    expect(terminals).toHaveLength(MAX_UNREAD_EXITED_TERMINALS);
+    expect(terminals[0]?.shellId).toBe('shell-2');
+    expect((await terminal.read_terminal_docker({ shellId: 'shell-1' })).stderr).toContain('no terminal');
   });
 
   it('lists running commands', async () => {

@@ -92,12 +92,21 @@ export class OutputCollector {
     this.append(typeof chunk === "string" ? chunk : this.decoder.write(chunk));
   }
 
-  finish(): string {
+  get length(): number {
+    return this.totalLength;
+  }
+
+  // A tighter limit than the one the collector was built with can be applied at the end: it only
+  // keeps less of the head and tail already held.
+  finish(limit: OutputLimit = this.limit): string {
+    if (limit.maxChars > this.limit.maxChars || limit.headChars > this.limit.headChars || limit.tailChars > this.limit.tailChars) {
+      throw new Error("OutputCollector.finish: the limit may only be tighter than the collector's own.");
+    }
     this.append(this.decoder.end());
     const tail = this.tail.join("");
-    if (this.totalLength <= this.limit.maxChars) return this.head + tail;
-    let head = this.head;
-    let kept = tail.slice(tail.length - this.limit.tailChars);
+    if (this.totalLength <= limit.maxChars) return this.head + tail;
+    let head = this.head.slice(0, limit.headChars);
+    let kept = tail.slice(tail.length - limit.tailChars);
     if (isHighSurrogate(head.charCodeAt(head.length - 1))) head = head.slice(0, -1);
     if (isLowSurrogate(kept.charCodeAt(0))) kept = kept.slice(1);
     return head + truncationNotice(this.totalLength - head.length - kept.length) + kept;
@@ -127,8 +136,12 @@ export class OutputWindow {
   private readonly decoder = new StringDecoder("utf8");
   private collector: OutputCollector;
 
-  constructor(private readonly limit?: OutputLimit) {
+  constructor(private readonly limit: OutputLimit = DEFAULT_OUTPUT_LIMIT) {
     this.collector = new OutputCollector(limit);
+  }
+
+  get pendingLength(): number {
+    return this.collector.length;
   }
 
   write(chunk: Buffer | string): void {
@@ -139,11 +152,27 @@ export class OutputWindow {
     this.collector.write(this.decoder.end());
   }
 
-  take(): string {
-    const text = this.collector.finish();
+  take(maxChars?: number): string {
+    const text = this.collector.finish(maxChars === undefined ? this.limit : scaleOutputLimit(this.limit, maxChars));
     this.collector = new OutputCollector(this.limit);
     return text;
   }
+}
+
+// stdout and stderr share one budget: a stream that fits in half of it is kept whole and the
+// other gets the rest.
+export function shareOutputBudget(stdoutLength: number, stderrLength: number, maxChars: number): [number, number] {
+  if (stdoutLength + stderrLength <= maxChars) return [stdoutLength, stderrLength];
+  const half = Math.floor(maxChars / 2);
+  if (stderrLength <= half) return [maxChars - stderrLength, stderrLength];
+  if (stdoutLength <= half) return [stdoutLength, maxChars - stdoutLength];
+  return [maxChars - half, half];
+}
+
+export function scaleOutputLimit(limit: OutputLimit, maxChars: number): OutputLimit {
+  if (maxChars >= limit.maxChars) return limit;
+  const ratio = maxChars / limit.maxChars;
+  return { maxChars, headChars: Math.floor(limit.headChars * ratio), tailChars: Math.floor(limit.tailChars * ratio) };
 }
 
 export function annotateTimeout(

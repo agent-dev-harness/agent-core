@@ -51,12 +51,22 @@ function restrictToTargetTools(wrapper: SessionWrapper, turnAvailableTools: read
   wrapper.enableTools(...targetTools);
 }
 
+// The nudge retries narrow the wrapper to the target tools; the caller gets its own enablement back.
+function snapshotEnablement(wrapper: SessionWrapper, names: readonly string[]): () => void {
+  const enabled = names.filter((name) => wrapper.isToolEnabled(name));
+  const disabled = names.filter((name) => !wrapper.isToolEnabled(name));
+  return () => {
+    wrapper.disableTools(...disabled);
+    wrapper.enableTools(...enabled);
+  };
+}
+
 export async function runForcedToolTurnUntilTimeout<T>(
   wrapper: SessionWrapper,
   toolName: string | string[],
   initialPrompt: string,
   opts: ForcedToolTurnUntilTimeoutOptions<T>
-): Promise<{ result: T; lastAssistantText: string; toolCalled: boolean }> {
+): Promise<{ result: T | undefined; lastAssistantText: string; toolCalled: boolean }> {
   const timeoutMs = opts.timeoutMs ?? NO_TURN_DEADLINE_MS;
   const maxRetries = opts.maxRetries ?? 2;
   const responseRequirements = opts.responseRequirements ?? {};
@@ -172,29 +182,35 @@ export async function runForcedToolTurnUntilTimeout<T>(
   let lastAssistantText = assistantText;
 
   let attempt = 0;
+  let restoreEnablement: (() => void) | undefined;
 
-  while ((!toolCalled || targetCallFailed()) && attempt < maxRetries) {
-    attempt++;
-    const toolNamesStr = targetTools.map(t => `'${t}'`).join(' or ');
-    logger.warn(
-      `[runForcedToolTurnUntilTimeout] turn ended without ${toolNamesStr} being called successfully ` +
-      `(attempt ${attempt}/${maxRetries}); resuming session with restricted toolset...`
-    );
+  try {
+    while ((!toolCalled || targetCallFailed()) && attempt < maxRetries) {
+      attempt++;
+      const toolNamesStr = targetTools.map(t => `'${t}'`).join(' or ');
+      logger.warn(
+        `[runForcedToolTurnUntilTimeout] turn ended without ${toolNamesStr} being called successfully ` +
+        `(attempt ${attempt}/${maxRetries}); resuming session with restricted toolset...`
+      );
 
-    const exampleBlock = responseRequirements.toolCallExample
-      ? `\n\nUse your tool-calling capability (a real function/tool call) -- not text in your message. Example of correctly-shaped arguments:\n\n${responseRequirements.toolCallExample}`
-      : '';
-    const nudge = targetCallFailed()
-      ? `Your call to ${toolNamesStr} failed: ${truncate(lastFailure, LAST_MESSAGE_TRUNCATE_LENGTH)}\nYou must now call one of ${toolNamesStr} again with corrected arguments. Do not respond conversationally and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`
-      : lastAssistantText.trim()
-      ? `You did not call any of: ${toolNamesStr}. Your last message was:\n"""\n${truncate(lastAssistantText.trim(), LAST_MESSAGE_TRUNCATE_LENGTH)}\n"""\nYou must now call one of ${toolNamesStr} with your findings. Do not respond conversationally, do not ask clarifying questions, and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`
-      : `You ended your turn without calling any of: ${toolNamesStr}. You must now call one of ${toolNamesStr} with your findings. Do not respond conversationally and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`;
+      const exampleBlock = responseRequirements.toolCallExample
+        ? `\n\nUse your tool-calling capability (a real function/tool call) -- not text in your message. Example of correctly-shaped arguments:\n\n${responseRequirements.toolCallExample}`
+        : '';
+      const nudge = targetCallFailed()
+        ? `Your call to ${toolNamesStr} failed: ${truncate(lastFailure, LAST_MESSAGE_TRUNCATE_LENGTH)}\nYou must now call one of ${toolNamesStr} again with corrected arguments. Do not respond conversationally and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`
+        : lastAssistantText.trim()
+        ? `You did not call any of: ${toolNamesStr}. Your last message was:\n"""\n${truncate(lastAssistantText.trim(), LAST_MESSAGE_TRUNCATE_LENGTH)}\n"""\nYou must now call one of ${toolNamesStr} with your findings. Do not respond conversationally, do not ask clarifying questions, and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`
+        : `You ended your turn without calling any of: ${toolNamesStr}. You must now call one of ${toolNamesStr} with your findings. Do not respond conversationally and do not call any other tool -- call one of ${toolNamesStr} now.${exampleBlock}`;
 
-    restrictToTargetTools(wrapper, turnAvailableTools, targetTools);
+      restoreEnablement ??= snapshotEnablement(wrapper, [...new Set([...turnAvailableTools, ...targetTools])]);
+      restrictToTargetTools(wrapper, turnAvailableTools, targetTools);
 
-    await sendUntilTimeout({ prompt: nudge });
+      await sendUntilTimeout({ prompt: nudge });
 
-    lastAssistantText = assistantText || lastAssistantText;
+      lastAssistantText = assistantText || lastAssistantText;
+    }
+  } finally {
+    restoreEnablement?.();
   }
 
   if (!toolCalled || targetCallFailed()) {
@@ -212,10 +228,5 @@ export async function runForcedToolTurnUntilTimeout<T>(
     );
   }
 
-  let finalResult = opts.getResult();
-  if (toolCalled && (finalResult === null || finalResult === undefined)) {
-    finalResult = (true as unknown) as T;
-  }
-
-  return { result: finalResult as T, lastAssistantText, toolCalled };
+  return { result: opts.getResult(), lastAssistantText, toolCalled };
 }

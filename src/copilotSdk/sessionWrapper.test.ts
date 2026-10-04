@@ -547,6 +547,13 @@ describe('SessionWrapper: misc lifecycle errors', () => {
     expect(createCalls).toHaveLength(1);
   });
 
+  it('isToolEnabled reports enablement and rejects an unknown tool', () => {
+    const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] }).disableTools('view');
+    expect(wrapper.isToolEnabled('edit')).toBe(true);
+    expect(wrapper.isToolEnabled('view')).toBe(false);
+    expect(() => wrapper.isToolEnabled('bash')).toThrow(/isToolEnabled: unknown tool 'bash'/);
+  });
+
   it('throws a clear error rather than calling the SDK when no client was supplied', async () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
     await expect(wrapper.sendAndWait('hello')).rejects.toThrow(/no CopilotClient/);
@@ -598,6 +605,7 @@ describe('SessionWrapper side-door surface', () => {
     const allowedPublicMethods = new Set([
       'enableTools',
       'disableTools',
+      'isToolEnabled',
       'setSystemPrompt',
       'setModelName',
       'sendAndWait',
@@ -605,7 +613,7 @@ describe('SessionWrapper side-door surface', () => {
       'abort',
       'disconnect',
     ]);
-    const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement']);
+    const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement', '_assertKnownTools']);
 
     const actualMethods = Object.getOwnPropertyNames(SessionWrapper.prototype).filter(
       (name) => !excludedFromCheck.has(name)
