@@ -171,8 +171,24 @@ export class SessionWrapper {
     this._kindSiblings = kindSiblings;
   }
 
+  /** @deprecated Use abort() and disconnect(); calling the raw session skips the wrapper's notices and defaults. */
   get session(): CopilotSession | undefined {
     return this._session;
+  }
+
+  async abort(): Promise<void> {
+    await this._session?.abort();
+  }
+
+  // The next sendAndWait creates a fresh session rather than resuming this one.
+  async disconnect(): Promise<void> {
+    const session = this._session;
+    this._unsubscribeAbort?.();
+    this._unsubscribeAbort = undefined;
+    this._session = undefined;
+    this._frozenSystemMessage = undefined;
+    this._announcedSystemPrompt = undefined;
+    await session?.disconnect();
   }
 
   enableTools(...names: readonly string[]): this {

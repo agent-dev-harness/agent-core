@@ -62,8 +62,12 @@ Call `initializeWorkspace()` once at startup before using the workspace function
 `makeRunTerminalDockerHandler`. Commands always run in the Docker container. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
+Use `wrapper.abort()` to stop the current turn and `wrapper.disconnect()` to end the
+session; the next `sendAndWait` after `disconnect()` starts a fresh session. The `.session`
+getter, which hands out the raw SDK session, is deprecated and will be removed.
+
 `SessionWrapper` passes each custom tool handler a `TurnToolInvocation`, whose `abortSignal`
-fires when the turn is aborted (`session.abort()`). A handler from
+fires when the turn is aborted (`wrapper.abort()`). A handler from
 `makeRunTerminalDockerHandler` kills its command when that signal fires, so pass the
 invocation through if you wrap it: `defineTool(name, description, parameters, (args, invocation) => handler(args, invocation))`.
 

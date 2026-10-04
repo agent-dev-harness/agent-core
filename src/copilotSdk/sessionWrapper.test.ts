@@ -20,6 +20,8 @@ function fakeClient(): {
       sessionId,
       sendAndWait: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(() => () => {}),
+      abort: vi.fn().mockResolvedValue(undefined),
+      disconnect: vi.fn().mockResolvedValue(undefined),
     } as unknown as CopilotSession;
     sessions.push(session);
     return session;
@@ -232,6 +234,35 @@ describe('SessionWrapper.enableTools/disableTools', () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit'] });
     expect(() => wrapper.enableTools('view')).toThrow(/unknown tool/);
     expect(wrapper._createConfig().availableTools).toEqual(['edit']);
+  });
+});
+
+describe('SessionWrapper.abort and disconnect', () => {
+  it('abort() aborts the current turn of the SDK session', async () => {
+    const { client, sessions } = fakeClient();
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+    await wrapper.sendAndWait('turn one');
+    await wrapper.abort();
+    expect(sessions[0]?.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnect() ends the SDK session, and the next turn creates a fresh one instead of resuming it', async () => {
+    const { client, sessions, createCalls, resumeCalls } = fakeClient();
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+    await wrapper.sendAndWait('turn one');
+    await wrapper.disconnect();
+    expect(sessions[0]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(wrapper.session).toBeUndefined();
+
+    await wrapper.sendAndWait('turn two');
+    expect(createCalls).toHaveLength(2);
+    expect(resumeCalls).toHaveLength(0);
+  });
+
+  it('both are safe to call before any session exists', async () => {
+    const wrapper = new SessionWrapper(fakeClient().client);
+    await expect(wrapper.abort()).resolves.toBeUndefined();
+    await expect(wrapper.disconnect()).resolves.toBeUndefined();
   });
 });
 
@@ -534,6 +565,8 @@ describe('SessionWrapper side-door surface', () => {
       'setModelName',
       'sendAndWait',
       'session',
+      'abort',
+      'disconnect',
     ]);
     const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement']);
 
