@@ -22,6 +22,7 @@ function fakeClient(): {
       on: vi.fn(() => () => {}),
       abort: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn().mockResolvedValue(undefined),
+      setModel: vi.fn().mockResolvedValue(undefined),
     } as unknown as CopilotSession;
     sessions.push(session);
     return session;
@@ -479,6 +480,22 @@ describe('SessionWrapper.sendAndWait: per-turn enablement notice', () => {
     const resumedSendAndWait = sessions[1]?.sendAndWait as ReturnType<typeof vi.fn>;
     const secondPrompt = resumedSendAndWait.mock.calls[0]?.[0] as string;
     expect(secondPrompt).toContain("additional operating instructions changed");
+    expect(secondPrompt).toContain('be verbose');
+  });
+
+  it('tells the model to drop the old instructions when the system prompt is cleared mid-session', async () => {
+    const { client, sessions } = fakeClient();
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] })
+      .setSystemPrompt('be terse')
+      .setModelName('claude-sonnet-4.5');
+
+    await wrapper.sendAndWait('turn one');
+    wrapper.setSystemPrompt(undefined);
+    await wrapper.sendAndWait('turn two');
+
+    const resumedSendAndWait = sessions[1]?.sendAndWait as ReturnType<typeof vi.fn>;
+    const secondPrompt = resumedSendAndWait.mock.calls[0]?.[0] as string;
+    expect(secondPrompt).toContain('disregard the ones in the system prompt');
   });
 });
 
@@ -499,7 +516,7 @@ describe('SessionWrapper.sendAndWait: mid-turn enablement race', () => {
 
 describe('SessionWrapper: misc lifecycle errors', () => {
   it('setModelName called after the session has started is never rejected and applies next turn', async () => {
-    const { client, createCalls, resumeCalls } = fakeClient();
+    const { client, createCalls, resumeCalls, sessions } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
 
     await wrapper.sendAndWait('turn one');
@@ -508,6 +525,26 @@ describe('SessionWrapper: misc lifecycle errors', () => {
 
     expect(createCalls[0]?.model).toBe('claude-sonnet-4.5');
     expect(resumeCalls[0]?.config.model).toBeUndefined();
+    expect(sessions[1]?.setModel).toHaveBeenCalledWith('claude-opus-4.8');
+  });
+
+  it('does not call setModel on resume when the model is unchanged', async () => {
+    const { client, sessions } = fakeClient();
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
+
+    await wrapper.sendAndWait('turn one');
+    await wrapper.sendAndWait('turn two');
+
+    expect(sessions[1]?.setModel).not.toHaveBeenCalled();
+  });
+
+  it('creates one session when two first turns are sent at once', async () => {
+    const { client, createCalls } = fakeClient();
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');
+
+    await Promise.all([wrapper.sendAndWait('a'), wrapper.sendAndWait('b')]);
+
+    expect(createCalls).toHaveLength(1);
   });
 
   it('throws a clear error rather than calling the SDK when no client was supplied', async () => {

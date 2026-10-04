@@ -9,7 +9,7 @@ function makeWrapper(client: unknown, toolNames: string[] = ['my_tool']): Sessio
 }
 
 describe('runForcedToolTurnUntilTimeout', () => {
-  it('no-tool-call -> retry once with availableTools narrowed and tool_choice set; exhausts retries -> throws', async () => {
+  it('no-tool-call -> retry once with availableTools narrowed; exhausts retries -> throws', async () => {
     let callCount = 0;
     const mockSession = {
       sessionId: 'test-session',
@@ -17,7 +17,7 @@ describe('runForcedToolTurnUntilTimeout', () => {
       sendAndWait: vi.fn().mockImplementation(async (opts) => {
         callCount++;
         if (callCount === 2) {
-          expect(opts.tool_choice).toEqual({ type: 'function', function: { name: 'my_tool' } });
+          expect(opts.prompt).toContain("You ended your turn without calling any of: 'my_tool'");
         }
       }),
     } as any;
@@ -33,7 +33,6 @@ describe('runForcedToolTurnUntilTimeout', () => {
     const runPromise = runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'test prompt', {
       maxRetries: 1,
       getResult: () => null,
-      provider: 'openrouter',
     });
 
     await expect(runPromise).rejects.toThrow(/Session ended without calling 'my_tool' after 1 retry/);
@@ -63,6 +62,94 @@ describe('runForcedToolTurnUntilTimeout', () => {
     expect(result.toolCalled).toBe(true);
     expect(result.result).toEqual({ ok: true });
     expect(mockClient.resumeSession).not.toHaveBeenCalled();
+  });
+
+  it('does not count a target call that failed: nudges with the error, then accepts the corrected call', async () => {
+    const handlers: Array<(e: unknown) => void> = [];
+    const prompts: string[] = [];
+    const turns: unknown[][] = [
+      [
+        { type: 'tool.execution_start', data: { toolName: 'my_tool', toolCallId: 'c1' } },
+        { type: 'tool.execution_complete', data: { toolCallId: 'c1', success: false, error: { message: 'pass must be a boolean' } } },
+      ],
+      [
+        { type: 'tool.execution_start', data: { toolName: 'my_tool', toolCallId: 'c2' } },
+        { type: 'tool.execution_complete', data: { toolCallId: 'c2', success: true } },
+      ],
+    ];
+    const mockSession = {
+      sessionId: 's-fail',
+      on: vi.fn().mockImplementation((handler) => {
+        handlers.push(handler);
+        return () => handlers.splice(handlers.indexOf(handler), 1);
+      }),
+      sendAndWait: vi.fn().mockImplementation(async (opts) => {
+        prompts.push(opts.prompt);
+        for (const event of turns[prompts.length - 1] ?? []) [...handlers].forEach((h) => h(event));
+      }),
+    } as any;
+    const mockClient = { createSession: vi.fn().mockResolvedValue(mockSession), resumeSession: vi.fn().mockResolvedValue(mockSession) } as any;
+    const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    const result = await runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'go', {
+      getResult: () => ({ ok: true }),
+      logger,
+    });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain("Your call to 'my_tool' failed: pass must be a boolean");
+    expect(result).toMatchObject({ toolCalled: true, result: { ok: true } });
+  });
+
+  it('throws naming the last error when every target call fails', async () => {
+    const handlers: Array<(e: unknown) => void> = [];
+    let n = 0;
+    const mockSession = {
+      sessionId: 's-fail-all',
+      on: vi.fn().mockImplementation((handler) => {
+        handlers.push(handler);
+        return () => handlers.splice(handlers.indexOf(handler), 1);
+      }),
+      sendAndWait: vi.fn().mockImplementation(async () => {
+        const id = `c${n++}`;
+        for (const event of [
+          { type: 'tool.execution_start', data: { toolName: 'my_tool', toolCallId: id } },
+          { type: 'tool.execution_complete', data: { toolCallId: id, success: false, error: { message: 'bad args' } } },
+        ]) [...handlers].forEach((h) => h(event));
+      }),
+    } as any;
+    const mockClient = { createSession: vi.fn().mockResolvedValue(mockSession), resumeSession: vi.fn().mockResolvedValue(mockSession) } as any;
+
+    await expect(
+      runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'go', {
+        maxRetries: 1,
+        getResult: () => undefined,
+        logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      }),
+    ).rejects.toThrow(/Every call to 'my_tool' failed after 1 retry\. Last error: bad args/);
+  });
+
+  it('sends diagnostics to the logger option instead of the console', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const mockSession = {
+        sessionId: 's-logger',
+        on: vi.fn().mockImplementation((handler) => {
+          handler({ type: 'tool.execution_start', data: { toolName: 'my_tool' } });
+          return vi.fn();
+        }),
+        sendAndWait: vi.fn().mockResolvedValue(undefined),
+      } as any;
+      const mockClient = { createSession: vi.fn().mockResolvedValue(mockSession), resumeSession: vi.fn() } as any;
+      const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+      await runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'go', { getResult: () => null, logger });
+
+      expect(logger.log).toHaveBeenCalledWith('[runForcedToolTurnUntilTimeout] tool used: my_tool');
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it('passes timeoutMs straight through to sendAndWait (no watchdog ceiling applied)', async () => {

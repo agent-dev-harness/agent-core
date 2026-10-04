@@ -24,6 +24,8 @@ export function resolveWorkDir(
   requested: string | undefined,
   workspaceRoot: string,
 ): ResolvedWorkDir {
+  // A trailing separator on the root ("/ws/") would otherwise reject the root itself.
+  if (workspaceRoot.length > 1) workspaceRoot = workspaceRoot.replace(/\/+$/, "") || "/";
   if (!requested || !requested.trim()) return { ok: true, dir: workspaceRoot };
   const absolute = path.isAbsolute(requested)
     ? path.normalize(requested)
@@ -35,11 +37,12 @@ export function resolveWorkDir(
   return { ok: true, dir: absolute };
 }
 
-// Reading the whole script before running it means a command that reads stdin gets EOF
-// instead of the lines after it. --norc because bash -c sources bashrc when stdin is a
-// socket.
+// The script arrives on stdin, ended by a NUL. Reading all of it before running it means a
+// command that reads stdin gets only what follows the NUL: end-of-file, unless the caller kept
+// stdin open to write to it. bash's read takes a pipe one byte at a time, so it never reads
+// past the NUL. --norc because bash -c sources bashrc when stdin is a socket.
 export function bashScriptArgs(setup = ""): string[] {
-  return ["--norc", "-c", `${setup}__run_terminal_script=$(cat); eval "$__run_terminal_script" </dev/null`];
+  return ["--norc", "-c", `${setup}IFS= read -r -d '' __run_terminal_script; eval "$__run_terminal_script"`];
 }
 
 export function shellQuotePath(p: string): string {
@@ -115,6 +118,31 @@ export class OutputCollector {
       this.tail.shift();
       this.tailLength -= oldest.length;
     }
+  }
+}
+
+// An OutputCollector per window, with one decoder across windows so a multibyte character
+// split between two windows survives.
+export class OutputWindow {
+  private readonly decoder = new StringDecoder("utf8");
+  private collector: OutputCollector;
+
+  constructor(private readonly limit?: OutputLimit) {
+    this.collector = new OutputCollector(limit);
+  }
+
+  write(chunk: Buffer | string): void {
+    this.collector.write(typeof chunk === "string" ? chunk : this.decoder.write(chunk));
+  }
+
+  end(): void {
+    this.collector.write(this.decoder.end());
+  }
+
+  take(): string {
+    const text = this.collector.finish();
+    this.collector = new OutputCollector(this.limit);
+    return text;
   }
 }
 

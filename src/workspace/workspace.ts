@@ -12,17 +12,28 @@ function defaultCreateSandbox(workTree: string, gitDir: string, execCommand: Exe
 }
 
 let _sandbox: GitSandbox | null = null;
+let _initializing: Promise<void> | null = null;
 
-export async function initializeWorkspace(options?: {
+// Concurrent calls share one attempt; a failed attempt is forgotten so the caller can retry
+// (for example once the container is up).
+export function initializeWorkspace(options?: {
   createSandbox?: GitSandboxFactory;
 }): Promise<void> {
-  if (_sandbox) return;
-  _sandbox = (options?.createSandbox ?? defaultCreateSandbox)(
-    docker.getWorkspaceRoot(),
-    docker.getGitDir(),
-    docker.execCommand
-  );
-  await _sandbox.initializeGitSandboxAsync();
+  if (_sandbox) return Promise.resolve();
+  if (!_initializing) {
+    _initializing = (async () => {
+      const sandbox = (options?.createSandbox ?? defaultCreateSandbox)(
+        docker.getWorkspaceRoot(),
+        docker.getGitDir(),
+        docker.execCommand
+      );
+      await sandbox.initializeGitSandboxAsync();
+      _sandbox = sandbox;
+    })().finally(() => {
+      _initializing = null;
+    });
+  }
+  return _initializing;
 }
 
 export function getGitSandbox(): GitSandbox {
@@ -36,6 +47,10 @@ export function getGitSandbox(): GitSandbox {
 
 export function getExecCommand() {
   return docker.execCommand;
+}
+
+export function getStartCommand() {
+  return docker.startDockerProcess;
 }
 
 export function getWorkspaceRoot(): string {

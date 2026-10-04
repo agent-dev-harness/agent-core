@@ -137,6 +137,18 @@ describe('Security & Logic Bugfix Verification Tests', () => {
     assert.ok(firstItem && firstItem.content && firstItem.content.includes('truncated'), 'Truncation alert message must be appended as inline content');
   });
 
+  it('enforceWorkingMemoryTruncation keeps long histories under the limit, even when the kept items are large', () => {
+    const history = [
+      { role: 'user' as const, content: 'task' },
+      ...Array.from({ length: 6 }, (_, i) => ({ role: (i % 2 ? 'user' : 'assistant') as 'user' | 'assistant', content: 'x'.repeat(60000) })),
+    ];
+
+    const result = enforceWorkingMemoryTruncation(history);
+    const totalLength = result.reduce((sum, item) => sum + item.content.length, 0);
+    assert.ok(totalLength <= 40000, `expected at most 40,000 chars, got ${totalLength}`);
+    assert.strictEqual(result[0]?.content, 'task', 'the root item is kept');
+  });
+
   it('resumeAsHuman promise resolution and error catching', async () => {
     let loggedError = '';
     const mockLogClient = (msg: string) => {

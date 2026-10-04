@@ -27,7 +27,11 @@ The merge gate (`ci/check.sh`) runs it, so the gate needs a Docker daemon.
 - `sendAndWait(prompt, timeout)` waits 60s when no timeout is given. When it times out
   the call throws but the turn keeps running. `SessionWrapper.sendAndWait` and
   `runForcedToolTurnUntilTimeout` pass `NO_TURN_DEADLINE_MS` (2^31-1 ms) instead, so a
-  default 60s `run_terminal_docker` deadline can't time out the turn.
+  `run_terminal_docker` call waiting out its default 60s can't time out the turn.
+- `session.send` forwards only `prompt`, `displayPrompt`, `attachments`, `mode`, `agentMode`
+  and `requestHeaders` (SDK 1.0.13), so other fields such as `tool_choice` never reach the model.
+- `tool.execution_complete` carries the `toolCallId` and `success` but not the tool name; match
+  it to the `tool.execution_start` with the same id.
 - `view`, `grep` and `glob` share the permission kind `read`, so enabling one without the
   others can't be told apart at the permission layer.
 - Changing `availableTools` or the `tools` list between turns regenerates the system
@@ -44,13 +48,18 @@ and the SDK gives no signal that tells the two apart. It is in git history befor
 ## run_terminal_docker
 
 Arguments are parsed and clamped in `src/execTool.ts`; `workingDir` is resolved and
-checked in `src/workspace/execHelpers.ts`. A missing directory exits 91; a deadline kill
-exits 124 with a note on stderr. Handlers pass a session-scoped abort signal that only
-fires on teardown, so `parseExecToolArgs` must always return a `timeoutMs`, or a hung
-command is never killed. `SessionWrapper` also gives each custom tool call a per-turn
-`abortSignal` in its invocation, fired by the session's `abort` event, and the handler
-kills the command when either signal fires. The SDK itself gives tool handlers no
-cancellation signal.
+checked in `src/workspace/execHelpers.ts`. A missing directory exits 91. The tool matches
+Copilot's bash tool: a call waits up to `initialWaitSeconds`, and a command still running then is
+left running in the background under a `shellId` (`read`/`write`/`stop`/`list_terminal_docker`),
+not killed. Background commands die when the session-scoped signal given to
+`makeTerminalDockerHandlers` fires; the per-turn `abortSignal` that `SessionWrapper` puts in each
+invocation (fired by the session's `abort` event) only kills a command still inside its initial
+wait. The SDK itself gives tool handlers no cancellation signal. `execCommand`, which `GitSandbox`
+uses, still kills at its deadline: exit 124 with a note on stderr.
+
+The script reaches the container on `docker exec`'s stdin, ended by a NUL. Whatever follows the
+NUL is the command's stdin: nothing in sync mode, so it reads end-of-file, or what
+`write_terminal_docker` sends in async mode.
 
 The runner spawns `docker exec` detached and kills its whole process group. It also kills
 inside the container, which the host can't reach through the group. It finds the run's

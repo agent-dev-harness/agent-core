@@ -7,9 +7,12 @@ const loggedToolListKeys = new Set<string>();
 
 export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) => void) {
   app.all('/api/providers/:provider/*', (req, res) => {
-    let bodyData = '';
-    req.on('data', chunk => bodyData += chunk);
+    // Joined as bytes, then decoded once: decoding each chunk would corrupt a multibyte
+    // character split across two chunks.
+    const bodyChunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => bodyChunks.push(chunk));
     req.on('end', () => {
+      const bodyData = Buffer.concat(bodyChunks).toString('utf8');
       const provider = req.params.provider;
       if (provider !== 'openrouter') {
         res.writeHead(404, { 'content-type': 'text/plain' });
@@ -62,13 +65,11 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
             ? `[ProviderProxy] ${provider} request tools (${toolNames.length}): ${toolNames.join(', ')}` +
               (openRouterSessionId ? ` [session_id=${openRouterSessionId}]` : '')
             : `[ProviderProxy] ${provider} request has no 'tools' field.`;
-          console.log(line);
           writeLog(line);
           if (loggedToolListKeys.size >= MAX_TRACKED_TOOL_LOG_KEYS) loggedToolListKeys.clear();
           loggedToolListKeys.add(toolLogKey);
         } catch (e) {
           const errLine = `[ProviderProxy] tool-list logging: failed to parse/log tools: ${e instanceof Error ? e.message : String(e)}`;
-          console.log(errLine);
           writeLog(errLine);
         }
       }
@@ -84,10 +85,20 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
       const proxyReq = https.request(options, (proxyRes) => {
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
         proxyRes.pipe(res);
+        proxyRes.on('error', (err) => {
+          writeLog("Provider proxy response error: " + err);
+          res.destroy(err);
+        });
       });
 
+      // Once the response has started streaming, a status can no longer be sent: cut the
+      // connection so the client sees the reply is incomplete.
       proxyReq.on('error', (err) => {
         writeLog("Provider proxy error: " + err);
+        if (res.headersSent) {
+          res.destroy(err);
+          return;
+        }
         res.writeHead(500);
         res.end('Provider proxy error: ' + err.message);
       });

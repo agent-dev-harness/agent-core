@@ -62,7 +62,8 @@ export class ProviderRegistry {
       }
     }
 
-    return tierModels[0] || cleaned;
+    // Never substitute a different model: one the registry doesn't know goes to the provider as asked.
+    return cleaned;
   }
 
   public getProviderType(input: string | ModelProviderConfig): ProviderType {

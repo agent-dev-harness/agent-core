@@ -1,20 +1,29 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
+import * as path from "path";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, OutputCollector, OutputLimit, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputLimit, OutputWindow, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
 
 function getWorkspaceHostLocationOrThrow(): string {
   if (!WORKSPACE_HOST_LOCATION) {
-    WORKSPACE_HOST_LOCATION = process.env.WORKSPACE_HOST_LOCATION || "";
-    if (!WORKSPACE_HOST_LOCATION) {
+    const raw = process.env.WORKSPACE_HOST_LOCATION || "";
+    if (!raw) {
       throw new Error(
-        "WORKSPACE_HOST_LOCATION environment variable is not set. It must match the " +
-          "path docker-compose.yml mounted the workspace at (see docker compose up).",
+        "WORKSPACE_HOST_LOCATION environment variable is not set. Set it to the absolute host path of " +
+          "the workspace, which must be bind-mounted at the same path inside CONTAINER_NAME.",
       );
     }
+    if (!path.isAbsolute(raw)) {
+      throw new Error(
+        `WORKSPACE_HOST_LOCATION must be an absolute path (got "${raw}"); the workspace is mounted at the ` +
+          "same absolute path inside the container.",
+      );
+    }
+    // Workspace path checks compare against this string, so "/ws/" and "/ws/./" must become "/ws".
+    WORKSPACE_HOST_LOCATION = path.resolve(raw);
   }
   return WORKSPACE_HOST_LOCATION;
 }
@@ -88,150 +97,165 @@ function verifyWorkspaceMount(): void {
   workspaceMountVerified = true;
 }
 
-export async function runDockerProcess(
-  command: string,
-  signal?: AbortSignal,
-  workDir?: string,
-  outputLimit?: OutputLimit,
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve) => {
-    const workspaceRoot = getWorkspaceHostLocationOrThrow();
+// A command started in the container. Output is read in windows: each takeOutput() returns what
+// arrived since the previous call, truncated to the output limit.
+export interface DockerRun {
+  readonly spawned: boolean;
+  readonly exited: Promise<number | null>;
+  takeOutput(): { stdout: string; stderr: string };
+  write(input: string): boolean;
+  closeStdin(): void;
+  kill(): Promise<void>;
+}
 
-    if (workDir !== undefined) {
-      const resolved = resolveWorkDir(workDir, workspaceRoot);
-      if (!resolved.ok) {
-        resolve({ stdout: "", stderr: resolved.error, exitCode: 1 });
-        return;
-      }
-      command = prependWorkDir(command, resolved.dir, workspaceRoot);
-    }
+export interface StartOptions {
+  workDir?: string;
+  outputLimit?: OutputLimit;
+  // Leaves the command's stdin open for write(); otherwise it gets end-of-file.
+  keepStdinOpen?: boolean;
+}
 
-    verifyWorkspaceMount();
+function finishedRun(stderr: string, exitCode: number, outputLimit?: OutputLimit): DockerRun {
+  const err = new OutputWindow(outputLimit);
+  err.write(stderr);
+  return {
+    spawned: false,
+    exited: Promise.resolve(exitCode),
+    takeOutput: () => ({ stdout: "", stderr: err.take() }),
+    write: () => false,
+    closeStdin: () => {},
+    kill: () => Promise.resolve(),
+  };
+}
 
-    const runId = crypto.randomUUID();
-    const child = spawn("docker", [
-      "exec",
-      "-i",
-      "-e",
-      `EXEC_RUN_ID=${runId}`,
-      "-w",
-      workspaceRoot,
-      getContainerName(),
-      "bash",
-      ...bashScriptArgs(RUN_MARKER_FD_SETUP),
-    ], { detached: true });
+export function startDockerProcess(command: string, opts: StartOptions = {}): DockerRun {
+  const workspaceRoot = getWorkspaceHostLocationOrThrow();
 
-    const CONTAINER_KILL_GRACE_MS = 1500;
+  if (opts.workDir !== undefined) {
+    const resolved = resolveWorkDir(opts.workDir, workspaceRoot);
+    if (!resolved.ok) return finishedRun(resolved.error, 1, opts.outputLimit);
+    command = prependWorkDir(command, resolved.dir, workspaceRoot);
+  }
 
-    let killInitiated = false;
-    let containerCleanupPromise: Promise<void> = Promise.resolve();
+  verifyWorkspaceMount();
 
-    const killChild = (): Promise<void> => {
-      if (killInitiated) return containerCleanupPromise;
-      killInitiated = true;
+  const runId = crypto.randomUUID();
+  const child = spawn("docker", [
+    "exec",
+    "-i",
+    "-e",
+    `EXEC_RUN_ID=${runId}`,
+    "-w",
+    workspaceRoot,
+    getContainerName(),
+    "bash",
+    ...bashScriptArgs(RUN_MARKER_FD_SETUP),
+  ], { detached: true });
 
-      killProcessGroup(child);
+  const CONTAINER_KILL_GRACE_MS = 1500;
 
-      containerCleanupPromise = new Promise<void>((resolveCleanup) => {
-        let settled = false;
-        const settle = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(graceTimer);
-          resolveCleanup();
-        };
-        const graceTimer = setTimeout(settle, CONTAINER_KILL_GRACE_MS);
+  let killInitiated = false;
+  let containerCleanupPromise: Promise<void> = Promise.resolve();
 
-        try {
-          // The host can't signal processes inside the container's PID namespace, so kill them
-          // there by run marker (environment or descriptor), plus their descendants, which may
-          // have dropped both. The kill shell carries the environment marker and skips itself ($$).
-          const killCmd = [
-            "declare -A parent doomed",
-            "for stat in /proc/[0-9]*/stat; do",
-            '  read -r line 2>/dev/null <"$stat" || continue',
-            "  fields=(${line##*) })",
-            "  pid=${stat#/proc/}",
-            '  [ -n "${fields[1]}" ] && parent[${pid%/stat}]=${fields[1]}',
-            "done",
-            'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3) \\',
-            '    $(find /proc/[0-9]*/fd -lname "/tmp/.exec-run-$EXEC_RUN_ID*" 2>/dev/null | cut -d/ -f3); do',
-            '  [ "$pid" = "$$" ] || doomed[$pid]=1',
-            "done",
-            "added=1",
-            'while [ -n "$added" ]; do',
-            "  added=",
-            '  for pid in "${!parent[@]}"; do',
-            '    if [ -z "${doomed[$pid]}" ] && [ -n "${doomed[${parent[$pid]}]}" ]; then doomed[$pid]=1; added=1; fi',
-            "  done",
-            "done",
-            'for pid in "${!doomed[@]}"; do',
-            '  kill -9 "$pid" 2>/dev/null || [ ! -e "/proc/$pid" ] || echo "kill-failed pid=$pid" >&2',
-            "done",
-          ].join("\n");
-          const killProc = spawn("docker", [
-            "exec",
-            "-e",
-            `EXEC_RUN_ID=${runId}`,
-            getContainerName(),
-            "bash",
-            "-c",
-            killCmd,
-          ]);
+  const killChild = (): Promise<void> => {
+    if (killInitiated) return containerCleanupPromise;
+    killInitiated = true;
 
-          let killStderr = "";
-          killProc.stderr?.on("data", (data) => {
-            killStderr += data.toString();
-          });
-          killProc.on("error", (err) => {
-            console.warn(
-              `Container-side kill for EXEC_RUN_ID=${runId} failed to spawn:`,
-              err,
-            );
-            settle();
-          });
-          killProc.on("close", (code) => {
-            if (code !== 0) {
-              console.warn(
-                `Container-side kill for EXEC_RUN_ID=${runId} exited with code ${code}` +
-                  (killStderr ? `: ${killStderr.trim()}` : " (possible permission issue or no matching processes)"),
-              );
-            }
-            settle();
-          });
-        } catch (e) {
-          console.warn("Failed to spawn container-side kill process", e);
-          settle();
-        }
-      });
+    killProcessGroup(child);
 
-      return containerCleanupPromise;
-    };
+    containerCleanupPromise = new Promise<void>((resolveCleanup) => {
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(graceTimer);
+        resolveCleanup();
+      };
+      const graceTimer = setTimeout(settle, CONTAINER_KILL_GRACE_MS);
 
-    const onAbort = () => {
-      void killChild();
-    };
-    if (signal) {
-      signal.addEventListener("abort", onAbort);
-      if (signal.aborted) {
-        void killChild().then(() => {
-          resolve({ stdout: "", stderr: "Docker process aborted", exitCode: 1 });
+      try {
+        // The host can't signal processes inside the container's PID namespace, so kill them
+        // there by run marker (environment or descriptor), plus their descendants, which may
+        // have dropped both. The kill shell carries the environment marker and skips itself ($$).
+        const killCmd = [
+          "declare -A parent doomed",
+          "for stat in /proc/[0-9]*/stat; do",
+          '  read -r line 2>/dev/null <"$stat" || continue',
+          "  fields=(${line##*) })",
+          "  pid=${stat#/proc/}",
+          '  [ -n "${fields[1]}" ] && parent[${pid%/stat}]=${fields[1]}',
+          "done",
+          'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3) \\',
+          '    $(find /proc/[0-9]*/fd -lname "/tmp/.exec-run-$EXEC_RUN_ID*" 2>/dev/null | cut -d/ -f3); do',
+          '  [ "$pid" = "$$" ] || doomed[$pid]=1',
+          "done",
+          "added=1",
+          'while [ -n "$added" ]; do',
+          "  added=",
+          '  for pid in "${!parent[@]}"; do',
+          '    if [ -z "${doomed[$pid]}" ] && [ -n "${doomed[${parent[$pid]}]}" ]; then doomed[$pid]=1; added=1; fi',
+          "  done",
+          "done",
+          'for pid in "${!doomed[@]}"; do',
+          '  kill -9 "$pid" 2>/dev/null || [ ! -e "/proc/$pid" ] || echo "kill-failed pid=$pid" >&2',
+          "done",
+        ].join("\n");
+        const killProc = spawn("docker", [
+          "exec",
+          "-e",
+          `EXEC_RUN_ID=${runId}`,
+          getContainerName(),
+          "bash",
+          "-c",
+          killCmd,
+        ]);
+
+        let killStderr = "";
+        killProc.stderr?.on("data", (data) => {
+          killStderr += data.toString();
         });
-        return;
+        killProc.on("error", (err) => {
+          console.warn(
+            `Container-side kill for EXEC_RUN_ID=${runId} failed to spawn:`,
+            err,
+          );
+          settle();
+        });
+        killProc.on("close", (code) => {
+          if (code !== 0) {
+            console.warn(
+              `Container-side kill for EXEC_RUN_ID=${runId} exited with code ${code}` +
+                (killStderr ? `: ${killStderr.trim()}` : " (possible permission issue or no matching processes)"),
+            );
+          }
+          settle();
+        });
+      } catch (e) {
+        console.warn("Failed to spawn container-side kill process", e);
+        settle();
       }
-    }
-
-    child.on("error", (err: any) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
-      resolve({
-        stdout: "",
-        stderr: `Failed to spawn docker process: ${err.message}`,
-        exitCode: 127,
-      });
     });
 
-    const stdout = new OutputCollector(outputLimit);
-    const stderr = new OutputCollector(outputLimit);
+    return containerCleanupPromise;
+  };
+
+  const stdout = new OutputWindow(opts.outputLimit);
+  const stderr = new OutputWindow(opts.outputLimit);
+  let stdinOpen = true;
+
+  const exited = new Promise<number | null>((resolve) => {
+    let settled = false;
+    const settle = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      stdinOpen = false;
+      resolve(code);
+    };
+
+    child.on("error", (err: any) => {
+      stderr.write(`Failed to spawn docker process: ${err.message}`);
+      settle(127);
+    });
 
     child.stdout.on("data", (data) => {
       stdout.write(data);
@@ -241,44 +265,84 @@ export async function runDockerProcess(
     });
 
     child.on("close", (code) => {
-      if (signal) signal.removeEventListener("abort", onAbort);
+      stdout.end();
+      stderr.end();
       if (killInitiated) {
-        void containerCleanupPromise.then(() => {
-          resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
-        });
+        void containerCleanupPromise.then(() => settle(code));
       } else {
-        resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
+        settle(code);
       }
     });
-    if (child.stdin.writable) {
-      child.stdin.write(command + "\n");
-      child.stdin.end();
-    } else {
-      if (signal) signal.removeEventListener("abort", onAbort);
 
+    // Writing to stdin after the command exits fails with EPIPE; the exit is reported by "close".
+    child.stdin.on("error", () => {
+      stdinOpen = false;
+    });
+    if (child.stdin.writable) {
+      child.stdin.write(command + "\n\0");
+      if (!opts.keepStdinOpen) {
+        stdinOpen = false;
+        child.stdin.end();
+      }
+    } else {
+      stdinOpen = false;
       const timer = setTimeout(() => {
         child.removeAllListeners("close");
-        resolve({
-          stdout: "",
-          stderr: "Docker process stdin not writable — timeout waiting for close.",
-          exitCode: 1,
-        });
+        stderr.write("Docker process stdin not writable — timeout waiting for close.");
+        settle(1);
       }, 1000);
 
       child.once("close", () => {
         clearTimeout(timer);
         void containerCleanupPromise.then(() => {
-          resolve({
-            stdout: "",
-            stderr: "Docker process stdin not writable — container may not be running.",
-            exitCode: 1,
-          });
+          stderr.write("Docker process stdin not writable — container may not be running.");
+          settle(1);
         });
       });
 
       void killChild();
     }
   });
+
+  return {
+    spawned: true,
+    exited,
+    takeOutput: () => ({ stdout: stdout.take(), stderr: stderr.take() }),
+    write: (input: string) => {
+      if (!stdinOpen) return false;
+      child.stdin.write(input);
+      return true;
+    },
+    closeStdin: () => {
+      if (!stdinOpen) return;
+      stdinOpen = false;
+      child.stdin.end();
+    },
+    kill: killChild,
+  };
+}
+
+export async function runDockerProcess(
+  command: string,
+  signal?: AbortSignal,
+  workDir?: string,
+  outputLimit?: OutputLimit,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  const run = startDockerProcess(command, { workDir, outputLimit });
+  if (run.spawned && signal?.aborted) {
+    await run.kill();
+    return { stdout: "", stderr: "Docker process aborted", exitCode: 1 };
+  }
+  const onAbort = () => {
+    void run.kill();
+  };
+  signal?.addEventListener("abort", onAbort);
+  try {
+    const exitCode = await run.exited;
+    return { ...run.takeOutput(), exitCode };
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function execCommand(

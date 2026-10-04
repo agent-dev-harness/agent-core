@@ -1,6 +1,7 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const entryPoints = [
     'src/index.ts',
@@ -30,3 +31,27 @@ await build({
 });
 
 execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { stdio: 'inherit' });
+
+// tsc keeps the sources' extensionless relative imports in the declarations, which consumers on
+// moduleResolution node16/nodenext can't resolve, so every type would silently become `any`.
+// Point each one at the emitted file.
+function addDeclarationExtensions(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            addDeclarationExtensions(file);
+            continue;
+        }
+        if (!entry.name.endsWith('.d.ts')) continue;
+        const source = readFileSync(file, 'utf8');
+        const rewritten = source.replace(/(\bfrom\s+|\bimport\s*\(\s*)(['"])(\.\.?\/[^'"]*?)\2/g, (match, lead, quote, spec) => {
+            const target = path.resolve(dir, spec);
+            if (existsSync(`${target}.d.ts`)) return `${lead}${quote}${spec}.js${quote}`;
+            if (existsSync(path.join(target, 'index.d.ts'))) return `${lead}${quote}${spec}/index.js${quote}`;
+            return match;
+        });
+        if (rewritten !== source) writeFileSync(file, rewritten);
+    }
+}
+
+addDeclarationExtensions('dist');

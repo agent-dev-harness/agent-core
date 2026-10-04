@@ -123,6 +123,14 @@ describe('ProviderRegistry routing', () => {
     expect(registry.getProviderType('gpt-5')).toBe('openrouter');
   });
 
+  it('passes a model missing from tierModels through unchanged instead of swapping in tierModels[0]', () => {
+    const registry = new ProviderRegistry('key', { tierModels: ['anthropic/claude-sonnet-4', 'openai/gpt-5'], roleModels: [], allConfigs: [] });
+    expect(registry.getMappedModel('o3')).toBe('o3');
+    expect(registry.getMappedModel('gpt-5-mini')).toBe('gpt-5-mini');
+    expect(registry.getExecutionConfig('claude-opus-4')).toMatchObject({ providerType: 'openrouter', model: 'claude-opus-4' });
+    expect(registry.getMappedModel('gpt-5')).toBe('openai/gpt-5');
+  });
+
   it('keeps a configured copilot-native model on the native path', () => {
     const registry = new ProviderRegistry('key', {
       tierModels: [],

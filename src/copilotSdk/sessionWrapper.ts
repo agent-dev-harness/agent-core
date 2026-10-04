@@ -93,11 +93,17 @@ function buildSystemPromptUpdateNotice(
   if (previousSystemPrompt === nextSystemPrompt) {
     return undefined;
   }
-  return (
+  const preamble =
     '# Session update\n' +
     "This session's additional operating instructions changed since the last turn. " +
     'The system prompt shown above is not being regenerated (it must stay fixed for ' +
-    'prompt-cache reasons), so this note is how the change reaches you.'
+    'prompt-cache reasons), so this note is how the change reaches you.';
+  if (!nextSystemPrompt) {
+    return `${preamble} There are no additional operating instructions any more: disregard the ones in the system prompt.`;
+  }
+  return (
+    `${preamble} The new instructions below replace the additional operating instructions in the system prompt:\n\n` +
+    `<operating_instructions>\n${nextSystemPrompt}\n</operating_instructions>`
   );
 }
 
@@ -129,6 +135,10 @@ export class SessionWrapper {
   private _modelName: string | undefined = undefined;
 
   private _session: CopilotSession | undefined = undefined;
+
+  private _creatingSession: Promise<CopilotSession> | undefined = undefined;
+
+  private _sessionModel: string | undefined = undefined;
 
   private _frozenSystemMessage: SessionConfig['systemMessage'] | undefined = undefined;
 
@@ -186,6 +196,7 @@ export class SessionWrapper {
     this._unsubscribeAbort?.();
     this._unsubscribeAbort = undefined;
     this._session = undefined;
+    this._sessionModel = undefined;
     this._frozenSystemMessage = undefined;
     this._announcedSystemPrompt = undefined;
     await session?.disconnect();
@@ -284,7 +295,8 @@ export class SessionWrapper {
     if (!this._client) {
       throw new Error('SessionWrapper.sendAndWait: no CopilotClient was supplied to this instance.');
     }
-    if (!this._modelName) {
+    const modelName = this._modelName;
+    if (!modelName) {
       throw new Error('SessionWrapper.sendAndWait: no model name was set. Call setModelName() first.');
     }
 
@@ -303,14 +315,23 @@ export class SessionWrapper {
       typeof prompt === 'string' ? `${notice}\n\n${prompt}` : { ...prompt, prompt: `${notice}\n\n${prompt.prompt}` };
 
     if (!this._session) {
-      const config = this._createConfig();
-      this._frozenSystemMessage = config.systemMessage;
-      this._session = await this._client.createSession({
-        ...this._baseConfig,
-        ...config,
-        // Last, so neither spread above can disable it.
-        largeOutput: { enabled: true, maxSizeBytes: 51200 },
-      });
+      // Concurrent first turns share one createSession call instead of each creating a session.
+      if (!this._creatingSession) {
+        const config = this._createConfig();
+        this._frozenSystemMessage = config.systemMessage;
+        this._sessionModel = config.model;
+        this._creatingSession = this._client
+          .createSession({
+            ...this._baseConfig,
+            ...config,
+            // Last, so neither spread above can disable it.
+            largeOutput: { enabled: true, maxSizeBytes: 51200 },
+          })
+          .finally(() => {
+            this._creatingSession = undefined;
+          });
+      }
+      this._session = await this._creatingSession;
     } else {
       // The SDK forgets custom tools and systemMessage on resume, and boundary.ts defaults
       // autoApproveAll to true, which would bypass _onPermissionRequest.
@@ -322,6 +343,10 @@ export class SessionWrapper {
         availableTools: resumeConfig.availableTools,
         systemMessage: this._frozenSystemMessage,
       });
+      if (modelName !== this._sessionModel) {
+        await this._session.setModel(modelName);
+        this._sessionModel = modelName;
+      }
     }
 
     this._announcedSystemPrompt = this._systemPrompt;

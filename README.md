@@ -6,8 +6,8 @@ Copilot SDK. It has four parts:
 | Part | What it does |
 |---|---|
 | **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
-| **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't. A timeout only frees the caller: the turn keeps running. |
-| **Workspace** | The Docker runner, the `run_terminal_docker` tool (working directory, timeouts, output truncation), killing the whole process group on abort, and `GitSandbox`. |
+| **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't, or if its call fails. A timeout only frees the caller: the turn keeps running. |
+| **Workspace** | The Docker runner, the `run_terminal_docker` tool and its `read`/`write`/`stop`/`list_terminal_docker` companions (working directory, background commands, output truncation), killing the whole process group on abort, and `GitSandbox`. |
 | **Providers** | `ProviderRegistry` plus an HTTP proxy. Bring-your-own-key models go through OpenRouter; a model configured as `copilot-native` uses Copilot's own models with no provider config. A model the registry has no config for routes to OpenRouter, and with no model and no `tierModels` it throws. |
 
 ## Goals
@@ -15,7 +15,9 @@ Copilot SDK. It has four parts:
 0. **Most important requirement:** `run_terminal_docker` completely replaces the bash tool.
 1. **One way in for anything risky:** SDK imports, session creation and workspace paths each
    have one allowed route, and lint checks enforce it.
-2. **No hangs:** every `run_terminal_docker` command has a deadline.
+2. **No hangs:** every `run_terminal_docker` call returns by its initial wait. As with Copilot's
+   bash tool, a command still running then keeps running in the background until it exits, is
+   stopped, or the session ends.
 3. **Agents stay in the workspace:** commands run in the sandbox, and paths can't reach
    outside it.
 4. **A stable prompt cache:** a resumed session sends the same tools and system prompt as
@@ -53,23 +55,41 @@ gate on `main` and tags that commit `v<version>`.
 
 | Import | Contents |
 |---|---|
-| `@agent-dev-harness/agent-core` | `SessionWrapper`, `TurnToolInvocation`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `TurnToolInvocation`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeTerminalDockerHandlers`, the deprecated `makeRunTerminalDockerHandler`, `parseExecToolArgs`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`; the tool definitions `TERMINAL_DOCKER_TOOLS` (`RUN_`, `READ_`, `WRITE_`, `STOP_` and `LIST_TERMINAL_DOCKER_TOOL`) |
 | `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `OPENROUTER_SESSION_ID_HEADER` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
-`makeRunTerminalDockerHandler`. Commands always run in the Docker container. To subclass `GitSandbox` (for example, to add branch-per-task
+`makeTerminalDockerHandlers`. If it fails (for example, the container isn't up yet), call it again.
+Commands always run in the Docker container. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
 Use `wrapper.abort()` to stop the current turn and `wrapper.disconnect()` to end the
 session; the next `sendAndWait` after `disconnect()` starts a fresh session. The `.session`
 getter, which hands out the raw SDK session, is deprecated and will be removed.
 
+`run_terminal_docker` behaves like Copilot's bash tool. It waits up to `initialWaitSeconds`
+(default 60) for the command. A command still running then is not killed: the call returns the
+output so far with `status: "running"` and a `shellId`, and the command keeps running.
+`read_terminal_docker` returns the output since the last read and, once the command is done, its
+exit code. `write_terminal_docker` sends input to a command started with `mode: "async"`,
+`stop_terminal_docker` kills one, and `list_terminal_docker` lists them. Register all five, with
+one `makeTerminalDockerHandlers(sessionSignal)` per session: the handlers share that session's
+commands, and when `sessionSignal` fires (or you call `stopAll()`) every command still running
+is killed.
+
+```ts
+const terminal = makeTerminalDockerHandlers(sessionAbort.signal);
+const tools = TERMINAL_DOCKER_TOOLS.map(({ function: f }) =>
+  defineTool(f.name, f.description, f.parameters, (args, invocation) => terminal[f.name](args, invocation)),
+);
+```
+
 `SessionWrapper` passes each custom tool handler a `TurnToolInvocation`, whose `abortSignal`
-fires when the turn is aborted (`wrapper.abort()`). A handler from
-`makeRunTerminalDockerHandler` kills its command when that signal fires, so pass the
-invocation through if you wrap it: `defineTool(name, description, parameters, (args, invocation) => handler(args, invocation))`.
+fires when the turn is aborted (`wrapper.abort()`). `run_terminal_docker` kills a command that is
+still inside its initial wait when that signal fires; one already in the background keeps
+running, which is why the example passes `invocation` through.
 
 To group a session's OpenRouter requests, pass
 `registry.getExecutionConfig(model, { openRouterSessionId })`. The provider config then
@@ -84,7 +104,7 @@ configuration, is passed in by the caller.
 | Variable | Read by | Effect |
 |---|---|---|
 | `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
-| `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required. |
+| `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required. Checkpoints live in its `snapshots/` directory. |
 | `COPILOT_API_URL` | provider registry | Base URL of the provider proxy; OpenRouter requests go to its `/api/providers/openrouter/` route. When unset, they go to `http://localhost:$PORT`. |
 | `PORT` | provider registry | Port of the local provider proxy used when `COPILOT_API_URL` is unset (default `3000`). |
 | `OPENROUTER_API_KEY` | provider registry, proxy | Key for the `openrouter` provider (the registry falls back to the key passed to `ProviderRegistry`); the proxy uses it to call OpenRouter. |

@@ -44,12 +44,13 @@ export function getCleanedContent(content: string): string {
   return cleaned;
 }
 
+const TOTAL_CHARACTER_LIMIT = 40000;
+
 export function enforceWorkingMemoryTruncation(
   history: ReadonlyArray<{ readonly role: 'user' | 'assistant'; readonly content: string }>
 ): ReadonlyArray<{ readonly role: 'user' | 'assistant'; readonly content: string }> {
   if (!history || history.length === 0) return [];
 
-  const TOTAL_CHARACTER_LIMIT = 40000;
   const len = history.length;
 
   let currentLen = 0;
@@ -73,23 +74,10 @@ export function enforceWorkingMemoryTruncation(
   }
 
   if (len <= 5) {
-    const maxPerItem = Math.max(100, Math.floor(TOTAL_CHARACTER_LIMIT / len) - 200);
-    const result = new Array(len);
-    for (let i = 0; i < len; i++) {
-       const item = history[i]!;
-       const cleaned = getCleanedContent(item.content);
-       const content = cleaned.length > maxPerItem
-         ? cleaned.slice(0, maxPerItem) + `\n... [Content truncated to ${maxPerItem} chars of total ${cleaned.length} to fit within 40,000 char working memory limit] ...`
-         : cleaned;
-       result[i] = {
-         role: item.role,
-         content
-       };
-    }
-    return result;
+    return capEachItem(history.map((item) => ({ role: item.role, content: getCleanedContent(item.content) })));
   }
 
-  const prunedHistory = new Array(6);
+  const prunedHistory: { role: 'user' | 'assistant'; content: string }[] = new Array(6);
   
   const rootItem = history[0]!;
   prunedHistory[0] = {
@@ -111,7 +99,21 @@ export function enforceWorkingMemoryTruncation(
     };
   }
 
-  return prunedHistory;
+  // The kept items can still exceed the limit on their own.
+  const prunedLength = prunedHistory.reduce((sum, item) => sum + item.content.length, 0);
+  return prunedLength <= TOTAL_CHARACTER_LIMIT ? prunedHistory : capEachItem(prunedHistory);
+}
+
+function capEachItem(
+  items: { role: 'user' | 'assistant'; content: string }[]
+): { role: 'user' | 'assistant'; content: string }[] {
+  const maxPerItem = Math.max(100, Math.floor(TOTAL_CHARACTER_LIMIT / items.length) - 200);
+  return items.map(({ role, content }) => ({
+    role,
+    content: content.length > maxPerItem
+      ? content.slice(0, maxPerItem) + `\n... [Content truncated to ${maxPerItem} chars of total ${content.length} to fit within 40,000 char working memory limit] ...`
+      : content,
+  }));
 }
 
 export class SlidingWindowCircularBuffer<T> {
