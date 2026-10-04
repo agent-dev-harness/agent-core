@@ -6,7 +6,7 @@ export const RUN_TERMINAL_DOCKER_TOOL = {
     parameters: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'The exact raw bash instruction sequence to stream into the shell stdin.' },
+        command: { type: 'string', description: 'The bash script to run. Commands get an empty stdin, so a program that prompts for input sees end-of-file instead of waiting; pass input with flags, pipes or heredocs.' },
         workingDir: { type: 'string', description: 'The directory to run the command in. Relative paths resolve against the workspace root (default); absolute paths must remain inside the workspace. Does not persist between calls.' },
         timeoutSeconds: { type: 'integer', minimum: 30, maximum: 600, description: 'Max seconds the command may run before it is killed (exit code 124). Default 60. Raise for long builds, installs, or test suites.' }
       },
