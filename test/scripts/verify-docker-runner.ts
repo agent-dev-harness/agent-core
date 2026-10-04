@@ -159,6 +159,13 @@ async function main(): Promise<void> {
       null,
     );
 
+    await execCommand('( env -i setsid sleep 38 & ); sleep 39', undefined, { timeoutMs: 2000 });
+    check(
+      'a deadline kill also reaches a process that cleared its environment and detached',
+      processesRunning(containerName, 'sleep 38') === '',
+      null,
+    );
+
     const controller = new AbortController();
     const aborted = execCommand('sleep 32 & sleep 33; wait', controller.signal);
     setTimeout(() => controller.abort(), 1000);

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { killProcessGroup } from "./processGroup";
-import { BASH_SCRIPT_ARGS, ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputCollector, OutputLimit, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 const FIXED_WORKSPACE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "app-"));
 
@@ -31,7 +31,7 @@ export async function runNativeProcess(
       command = prependWorkDir(command, resolved.dir, workspaceRoot);
     }
 
-    const child = spawn("bash", [...BASH_SCRIPT_ARGS], {
+    const child = spawn("bash", bashScriptArgs(), {
       cwd: getWorkspaceRoot(),
       env: { PATH: FIXED_PATH },
       detached: true,

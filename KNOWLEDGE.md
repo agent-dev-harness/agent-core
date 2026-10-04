@@ -47,7 +47,8 @@ fires on teardown, so `parseExecToolArgs` must always return a `timeoutMs`, or a
 command is never killed.
 
 Both runners spawn detached and kill the whole process group. Docker mode also kills
-by an `EXEC_RUN_ID` marker inside the container, which the host can't reach through
-the group, along with the descendants of marked processes, which may have dropped the
-marker (`env -i`). A process that drops the marker and also leaves its parent before
-the kill escapes.
+inside the container, which the host can't reach through the group. It finds the run's
+processes by two markers: the `EXEC_RUN_ID` environment variable and an inherited
+descriptor (fd 987) on a deleted `/tmp/.exec-run-<id>` file, plus all their
+descendants. Only a process that clears its environment, closes its inherited
+descriptors and leaves its parent before the kill escapes.
