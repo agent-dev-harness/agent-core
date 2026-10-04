@@ -11,61 +11,42 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
     req.on('data', chunk => bodyData += chunk);
     req.on('end', () => {
       const provider = req.params.provider;
+      if (provider !== 'openrouter') {
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        res.end(`Unknown provider '${provider}'. Only openrouter is proxied.`);
+        return;
+      }
       const method = req.method;
       const sessionHeader = req.headers[OPENROUTER_SESSION_ID_HEADER];
       const openRouterSessionId = typeof sessionHeader === 'string' && sessionHeader ? sessionHeader : undefined;
 
       let modifiedBody = bodyData;
-      let targetHostname = 'api.openai.com';
-
-      if (provider === 'gemini') {
-        targetHostname = 'generativelanguage.googleapis.com';
-        try {
-          if (bodyData) {
-            const data = JSON.parse(bodyData);
-            if (data && Array.isArray(data.messages)) {
-              data.messages.forEach((m: { refusal?: unknown; parsed?: unknown }) => {
-                if ('refusal' in m) delete m.refusal;
-                if ('parsed' in m) delete m.parsed;
-              });
-              modifiedBody = JSON.stringify(data);
-            }
+      const targetHostname = 'openrouter.ai';
+      try {
+        if (bodyData && openRouterSessionId) {
+          const data = JSON.parse(bodyData);
+          if (data && typeof data === 'object' && !data.session_id) {
+            data.session_id = openRouterSessionId;
+            modifiedBody = JSON.stringify(data);
           }
-        } catch (e) {
-             writeLog("Provider parse error: " + e);
         }
-      } else if (provider === 'anthropic') {
-        targetHostname = 'api.anthropic.com';
-      } else if (provider === 'openrouter') {
-        targetHostname = 'openrouter.ai';
-        try {
-          if (bodyData && openRouterSessionId) {
-            const data = JSON.parse(bodyData);
-            if (data && typeof data === 'object' && !data.session_id) {
-              data.session_id = openRouterSessionId;
-              modifiedBody = JSON.stringify(data);
-            }
-          }
-        } catch (e) {
-          writeLog("Provider parse error (openrouter session_id): " + e);
-        }
+      } catch (e) {
+        writeLog("Provider parse error (openrouter session_id): " + e);
       }
 
       const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: targetHostname };
       delete headers[OPENROUTER_SESSION_ID_HEADER];
-      if (provider === 'openrouter') {
-        if (!headers.authorization) {
-          const key = process.env.OPENROUTER_API_KEY;
-          if (key) {
-            headers.authorization = `Bearer ${key}`;
-          }
+      if (!headers.authorization) {
+        const key = process.env.OPENROUTER_API_KEY;
+        if (key) {
+          headers.authorization = `Bearer ${key}`;
         }
-        if (!headers['http-referer']) {
-          headers['http-referer'] = 'https://github.com/github/copilot';
-        }
-        if (!headers['x-openrouter-title']) {
-          headers['x-openrouter-title'] = 'GitHub Copilot';
-        }
+      }
+      if (!headers['http-referer']) {
+        headers['http-referer'] = 'https://github.com/github/copilot';
+      }
+      if (!headers['x-openrouter-title']) {
+        headers['x-openrouter-title'] = 'GitHub Copilot';
       }
       delete headers['accept-encoding'];
       headers['content-length'] = Buffer.byteLength(modifiedBody).toString();
@@ -101,24 +82,6 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
       };
 
       const proxyReq = https.request(options, (proxyRes) => {
-        if (provider === 'gemini' && proxyRes.statusCode && proxyRes.statusCode >= 400) {
-          let errorBody: Buffer[] = [];
-          proxyRes.on('data', d => errorBody.push(d));
-          proxyRes.on('end', () => {
-            let bodyStr = Buffer.concat(errorBody).toString();
-            try {
-              const parsed = JSON.parse(bodyStr);
-              if (Array.isArray(parsed) && parsed.length === 1 && parsed[0].error) {
-                bodyStr = JSON.stringify(parsed[0]);
-              }
-            } catch (e) {
-            }
-            res.writeHead(proxyRes.statusCode || 500, { ...proxyRes.headers, 'content-length': Buffer.byteLength(bodyStr).toString() });
-            res.end(bodyStr);
-          });
-          return;
-        }
-
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
         proxyRes.pipe(res);
       });

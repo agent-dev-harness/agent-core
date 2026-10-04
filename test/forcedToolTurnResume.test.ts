@@ -13,7 +13,7 @@ const USER_PROMPT = 'Audit this change for security issues.';
 
 async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promise<unknown> {
   const executionConfig = new ProviderRegistry('test-key').getExecutionConfig({
-    provider: 'gemini',
+    provider: 'openrouter',
     model: 'gemini-3.1-flash-lite',
   });
   const client = new CopilotClient({ workingDirectory: workDir, logLevel: 'none', useLoggedInUser: false });
@@ -61,7 +61,6 @@ describe('forced tool turn retry against real SDK/proxy transport', () => {
     proxy = new CapiProxy();
     proxyUrl = await proxy.start();
     process.env.COPILOT_API_URL = proxyUrl;
-    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-key';
 
     const snapshotPath = path.resolve(
       process.cwd(),
