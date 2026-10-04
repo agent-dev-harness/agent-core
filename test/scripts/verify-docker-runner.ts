@@ -77,6 +77,10 @@ async function main(): Promise<void> {
     const traversal = await handler({ command: 'pwd', workingDir: '../..' });
     check('rejects a workingDir outside the workspace', traversal.exitCode === 1 && /traversal/i.test(traversal.stderr), traversal);
 
+    fs.symlinkSync('/etc', path.join(workspace, 'escape-link'));
+    const viaSymlink = await handler({ command: 'pwd -P', workingDir: 'escape-link' });
+    check('rejects a workingDir that leaves the workspace through a symlink', viaSymlink.exitCode === 1 && /traversal/i.test(viaSymlink.stderr), viaSymlink);
+
     const missing = await handler({ command: 'pwd', workingDir: 'does-not-exist' });
     check('reports a missing workingDir with exit 91', missing.exitCode === 91, missing);
 

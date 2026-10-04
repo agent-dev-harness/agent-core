@@ -42,6 +42,21 @@ describe('execCommand workingDir handling (native runner)', () => {
     expect(result.stderr).toContain('No such file or directory');
     expect(result.stdout).not.toContain('should-not-run');
   });
+
+  it('refuses a workingDir that leaves the workspace through a symlink', async () => {
+    fs.symlinkSync('/etc', path.join(ROOT, 'escape-link'));
+    const result = await execCommand('echo should-not-run', undefined, { workDir: 'escape-link' });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('path traversal');
+    expect(result.stdout).toBe('');
+  });
+
+  it('allows a symlink that stays inside the workspace', async () => {
+    fs.symlinkSync(path.join(ROOT, 'parity-sub'), path.join(ROOT, 'inside-link'));
+    const result = await execCommand('cat marker.txt', undefined, { workDir: 'inside-link' });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('inside-subdir');
+  });
 });
 
 describe('execCommand timeout handling (native runner)', () => {

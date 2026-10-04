@@ -1,5 +1,6 @@
 import { assert, describe, it, vi, beforeEach } from "vitest";
 import { execCommand, runDockerProcess } from "../../src/workspace/dockerRunner";
+import { TRAVERSAL_ERROR } from "../../src/workspace/execHelpers";
 import * as cp from "child_process";
 import * as crypto from "crypto";
 
@@ -73,7 +74,9 @@ describe("docker runner workingDir handling", () => {
     assert.strictEqual(mainChild.stdinWrites.length, 1);
     assert.strictEqual(
       mainChild.stdinWrites[0],
-      `cd '${WS_ROOT}/docs' || exit 91\nls -la\n`,
+      `cd '${WS_ROOT}/docs' || exit 91\n` +
+        `case "$(pwd -P)/" in "$(cd '${WS_ROOT}' && pwd -P)"/*) ;; *) echo '${TRAVERSAL_ERROR}' >&2; exit 1 ;; esac\n` +
+        `ls -la\n`,
       "Expected the command stream to start with a quoted cd guard, then the command",
     );
   });

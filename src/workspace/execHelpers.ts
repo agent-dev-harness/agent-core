@@ -48,9 +48,16 @@ export function shellQuotePath(p: string): string {
   return `'` + p.replace(/'/g, `'\\''`) + `'`;
 }
 
+// resolveWorkDir only checks the path text, so a symlink could still lead outside; this
+// checks the physical directory in the shell that runs the command.
 export function prependWorkDir(command: string, dir: string, workspaceRoot: string): string {
   if (dir === workspaceRoot) return command;
-  return `cd ${shellQuotePath(dir)} || exit 91\n${command}`;
+  return (
+    `cd ${shellQuotePath(dir)} || exit 91\n` +
+    `case "$(pwd -P)/" in "$(cd ${shellQuotePath(workspaceRoot)} && pwd -P)"/*) ;; ` +
+    `*) echo ${shellQuotePath(TRAVERSAL_ERROR)} >&2; exit 1 ;; esac\n` +
+    command
+  );
 }
 
 const DEFAULT_OUTPUT_LIMIT: OutputLimit = {
