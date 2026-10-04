@@ -36,7 +36,11 @@ export class ProviderRegistry {
   public getMappedModel(modelName?: string): string {
     const tierModels = this.known.tierModels;
     if (!modelName) {
-      return tierModels[0] || 'gemini-3.1-flash-lite';
+      const fallback = tierModels[0];
+      if (!fallback) {
+        throw new Error('ProviderRegistry: no model was given and no tierModels are configured to fall back on.');
+      }
+      return fallback;
     }
     const cleaned = modelName.replace('models/', '').trim();
     if (cleaned.includes('/')) {
@@ -58,7 +62,7 @@ export class ProviderRegistry {
       }
     }
 
-    return tierModels[0] || 'gemini-3.1-flash-lite';
+    return tierModels[0] || cleaned;
   }
 
   public getProviderType(input: string | ModelProviderConfig): ProviderType {
@@ -78,13 +82,7 @@ export class ProviderRegistry {
       }
     }
 
-    if (matchedConfig) {
-      return matchedConfig.provider;
-    } else if (model.includes('/')) {
-      return 'openrouter';
-    } else {
-      return 'gemini';
-    }
+    return matchedConfig ? matchedConfig.provider : 'openrouter';
   }
 
   public getProviderConfig(provider: ProviderType, modelName: string): ProviderConfig | undefined {
@@ -92,89 +90,31 @@ export class ProviderRegistry {
       return undefined;
     }
 
-    if (process.env.COPILOT_API_URL) {
-      if (provider === 'openai') {
-        return {
-          type: 'openai',
-          baseUrl: process.env.COPILOT_API_URL,
-          apiKey: this.apiKey || 'mock-key'
-        };
-      }
+    const apiKey = process.env.OPENROUTER_API_KEY || (this.apiKey !== 'mock-key' ? this.apiKey : undefined);
+    if (!apiKey) {
+      throw new Error('Missing API key for OpenRouter provider. Expected OPENROUTER_API_KEY to be set.');
     }
 
-    if (provider === 'gemini') {
-      if (!this.apiKey) {
-        throw new Error('Missing API key for Gemini provider. Expected GEMINI_API_KEY to be set.');
-      }
-      return {
-        type: 'openai',
-        baseUrl: process.env.COPILOT_API_URL ? `${process.env.COPILOT_API_URL}/api/providers/gemini/v1beta/openai/` : `http://localhost:${process.env.PORT || 3000}/api/providers/gemini/v1beta/openai/`,
-        apiKey: this.apiKey
-      };
-    } else if (provider === 'anthropic') {
-      const apiKey = process.env.ANTHROPIC_API_KEY || (this.apiKey !== 'mock-key' ? this.apiKey : undefined);
-      if (!apiKey) {
-        throw new Error('Missing API key for Anthropic provider. Expected ANTHROPIC_API_KEY to be set.');
-      }
-      return {
-        type: 'anthropic',
-        baseUrl: 'https://api.anthropic.com/v1/',
-        apiKey
-      };
-    } else if (provider === 'local') {
-      return {
-        type: 'openai',
-        baseUrl: process.env.LOCAL_PROVIDER_URL || 'http://127.0.0.1:11434/v1/',
-        apiKey: process.env.LOCAL_PROVIDER_API_KEY || 'ollama'
-      };
-    } else if (provider === 'openrouter') {
-      const apiKey = process.env.OPENROUTER_API_KEY || (this.apiKey !== 'mock-key' ? this.apiKey : undefined);
-      if (!apiKey) {
-        throw new Error('Missing API key for OpenRouter provider. Expected OPENROUTER_API_KEY to be set.');
-      }
-
-      const proxyBaseUrl = process.env.COPILOT_API_URL ? `${process.env.COPILOT_API_URL}/api/providers/openrouter/api/v1/` : `http://localhost:${process.env.PORT || 3000}/api/providers/openrouter/api/v1/`;
-      let finalBaseUrl = process.env.OPENROUTER_BASE_URL || proxyBaseUrl;
-      if (finalBaseUrl) {
-        finalBaseUrl = finalBaseUrl.trim();
-        finalBaseUrl = finalBaseUrl.replace(/\/chat\/completions\/?$/, '/');
-        finalBaseUrl = finalBaseUrl.replace(/\/completions\/?$/, '/');
-        if (!finalBaseUrl.endsWith('/')) {
-          finalBaseUrl += '/';
-        }
-      }
-      return {
-        type: 'openai',
-        baseUrl: finalBaseUrl,
-        apiKey
-      };
-    } else if (provider === 'openai') {
-      if (process.env.COPILOT_API_URL) {
-        return {
-          type: 'openai',
-          baseUrl: process.env.COPILOT_API_URL,
-          apiKey: this.apiKey || 'mock-key'
-        };
-      }
-      const apiKey = process.env.OPENAI_API_KEY || (this.apiKey !== 'mock-key' ? this.apiKey : undefined);
-      if (!apiKey) {
-        throw new Error('Missing API key for OpenAI provider. Expected OPENAI_API_KEY to be set.');
-      }
-      return {
-        type: 'openai',
-        baseUrl: 'https://api.openai.com/v1/',
-        apiKey
-      };
+    const proxyBaseUrl = process.env.COPILOT_API_URL ? `${process.env.COPILOT_API_URL}/api/providers/openrouter/api/v1/` : `http://localhost:${process.env.PORT || 3000}/api/providers/openrouter/api/v1/`;
+    let finalBaseUrl = process.env.OPENROUTER_BASE_URL || proxyBaseUrl;
+    finalBaseUrl = finalBaseUrl.trim();
+    finalBaseUrl = finalBaseUrl.replace(/\/chat\/completions\/?$/, '/');
+    finalBaseUrl = finalBaseUrl.replace(/\/completions\/?$/, '/');
+    if (!finalBaseUrl.endsWith('/')) {
+      finalBaseUrl += '/';
     }
-
-    return undefined;
+    return {
+      type: 'openai',
+      baseUrl: finalBaseUrl,
+      apiKey
+    };
   }
 
   public getExecutionConfig(
     input: string | ModelProviderConfig,
     options?: { openRouterSessionId?: string },
   ): ExecutionConfig {
-    let providerType: ProviderType = 'gemini';
+    let providerType: ProviderType;
     let model: string;
 
     if (typeof input === 'object' && input !== null) {
@@ -194,13 +134,7 @@ export class ProviderRegistry {
         }
       }
 
-      if (matchedConfig) {
-        providerType = matchedConfig.provider;
-      } else if (model.includes('/')) {
-        providerType = 'openrouter';
-      } else {
-        providerType = 'gemini';
-      }
+      providerType = matchedConfig ? matchedConfig.provider : 'openrouter';
     }
 
     const provider = this.getProviderConfig(providerType, model);

@@ -8,7 +8,7 @@ Copilot SDK. It has four parts:
 | **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
 | **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't. A timeout only frees the caller: the turn keeps running. |
 | **Workspace** | The Docker runner, the `run_terminal_docker` tool (working directory, timeouts, output truncation), killing the whole process group on abort, and `GitSandbox`. |
-| **Providers** | `ProviderRegistry` plus an HTTP proxy that routes models to OpenAI, Anthropic, OpenRouter, Gemini or a local server. |
+| **Providers** | `ProviderRegistry` plus an HTTP proxy. Bring-your-own-key models go through OpenRouter; a model configured as `copilot-native` uses Copilot's own models with no provider config. A model the registry has no config for routes to OpenRouter, and with no model and no `tierModels` it throws. |
 
 ## Goals
 
@@ -81,17 +81,10 @@ configuration, is passed in by the caller.
 |---|---|---|
 | `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
 | `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required. |
-| `COPILOT_API_URL` | provider registry | Base URL of the provider proxy. When unset, providers route to `http://localhost:$PORT`. |
+| `COPILOT_API_URL` | provider registry | Base URL of the provider proxy; OpenRouter requests go to its `/api/providers/openrouter/` route. When unset, they go to `http://localhost:$PORT`. |
 | `PORT` | provider registry | Port of the local provider proxy used when `COPILOT_API_URL` is unset (default `3000`). |
-| `OPENAI_API_KEY` | provider registry | Key for the `openai` provider (falls back to the key passed to `ProviderRegistry`). |
-| `ANTHROPIC_API_KEY` | provider registry | Key for the `anthropic` provider (same fallback). |
-| `OPENROUTER_API_KEY` | provider registry, proxy | Key for the `openrouter` provider (same fallback in the registry); the proxy uses it to call OpenRouter. |
+| `OPENROUTER_API_KEY` | provider registry, proxy | Key for the `openrouter` provider (the registry falls back to the key passed to `ProviderRegistry`); the proxy uses it to call OpenRouter. |
 | `OPENROUTER_BASE_URL` | provider registry | Overrides the OpenRouter base URL. |
-| `LOCAL_PROVIDER_URL` | provider registry | Base URL of a local OpenAI-compatible server (default `http://127.0.0.1:11434/v1/`). |
-| `LOCAL_PROVIDER_API_KEY` | provider registry | Key for the local provider (default `ollama`). |
-
-The Gemini provider takes its key only from the `ProviderRegistry` constructor; the
-package does not read `GEMINI_API_KEY` itself.
 
 ## Development
 

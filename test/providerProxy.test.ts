@@ -79,35 +79,62 @@ describe('provider proxy OpenRouter session id', () => {
   });
 });
 
+describe('provider proxy routing', () => {
+  it('refuses providers other than openrouter instead of forwarding them', async () => {
+    forwarded.length = 0;
+    const res = await fetch(`${baseUrl}/api/providers/gemini/v1beta/openai/chat/completions`, { method: 'POST', body: '{}' });
+    expect(res.status).toBe(404);
+    expect(forwarded).toHaveLength(0);
+  });
+});
+
 describe('ProviderRegistry openRouterSessionId', () => {
   it('puts the session id header on an OpenRouter provider config only', () => {
     const registry = new ProviderRegistry('key');
     const openrouter = registry.getExecutionConfig({ provider: 'openrouter', model: 'x/y' }, { openRouterSessionId: 's-1' });
     expect(openrouter.provider?.headers).toEqual({ [OPENROUTER_SESSION_ID_HEADER]: 's-1' });
 
-    const gemini = registry.getExecutionConfig({ provider: 'gemini', model: 'gemini-3.1-flash-lite' }, { openRouterSessionId: 's-1' });
-    expect(gemini.provider?.headers).toBeUndefined();
+    const native = registry.getExecutionConfig({ provider: 'copilot-native', model: 'gpt-5' }, { openRouterSessionId: 's-1' });
+    expect(native.provider).toBeUndefined();
   });
 });
 
-describe('ProviderRegistry routing with COPILOT_API_URL set', () => {
-  it('sends only openai straight to it, whatever VITEST says, so a consumer test run routes like production', () => {
-    const saved = { url: process.env.COPILOT_API_URL, vitest: process.env.VITEST, anthropic: process.env.ANTHROPIC_API_KEY };
+describe('ProviderRegistry routing', () => {
+  it('sends BYOK models through the OpenRouter proxy route, whatever VITEST says', () => {
+    const saved = { url: process.env.COPILOT_API_URL, vitest: process.env.VITEST };
     process.env.COPILOT_API_URL = 'http://proxy.test';
     process.env.VITEST = 'true';
-    process.env.ANTHROPIC_API_KEY = 'a-key';
     try {
       const registry = new ProviderRegistry('key');
-      expect(registry.getProviderConfig('openai', 'gpt-x')?.baseUrl).toBe('http://proxy.test');
-      expect(registry.getProviderConfig('gemini', 'gemini-3.1-flash-lite')?.baseUrl).toBe(
-        'http://proxy.test/api/providers/gemini/v1beta/openai/'
-      );
-      expect(registry.getProviderConfig('anthropic', 'claude-x')?.baseUrl).toBe('https://api.anthropic.com/v1/');
+      expect(registry.getProviderConfig('openrouter', 'x/y')?.baseUrl).toBe('http://proxy.test/api/providers/openrouter/api/v1/');
+      expect(registry.getProviderConfig('copilot-native', 'gpt-5')).toBeUndefined();
     } finally {
-      for (const [key, value] of [['COPILOT_API_URL', saved.url], ['VITEST', saved.vitest], ['ANTHROPIC_API_KEY', saved.anthropic]] as const) {
+      for (const [key, value] of [['COPILOT_API_URL', saved.url], ['VITEST', saved.vitest]] as const) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
     }
+  });
+
+  it('routes a model it has no config for to OpenRouter, with or without a vendor prefix', () => {
+    const registry = new ProviderRegistry('key');
+    expect(registry.getExecutionConfig('google/gemini-3.1-flash-lite')).toMatchObject({ providerType: 'openrouter', model: 'google/gemini-3.1-flash-lite' });
+    expect(registry.getExecutionConfig('gpt-5')).toMatchObject({ providerType: 'openrouter', model: 'gpt-5' });
+    expect(registry.getProviderType('gpt-5')).toBe('openrouter');
+  });
+
+  it('keeps a configured copilot-native model on the native path', () => {
+    const registry = new ProviderRegistry('key', {
+      tierModels: [],
+      roleModels: [],
+      allConfigs: [{ provider: 'copilot-native', model: 'gpt-5' }],
+    });
+    expect(registry.getExecutionConfig('gpt-5')).toMatchObject({ providerType: 'copilot-native', provider: undefined });
+  });
+
+  it('throws when no model is given and no tierModels are configured', () => {
+    expect(() => new ProviderRegistry('key').getExecutionConfig('')).toThrow(/no model was given/);
+    const withTiers = new ProviderRegistry('key', { tierModels: ['x/tier'], roleModels: [], allConfigs: [] });
+    expect(withTiers.getMappedModel()).toBe('x/tier');
   });
 });

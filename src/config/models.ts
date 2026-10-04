@@ -1,11 +1,4 @@
-export const PROVIDERS = [
-  "copilot-native",
-  "openai",
-  "anthropic",
-  "gemini",
-  "local",
-  "openrouter",
-] as const;
+export const PROVIDERS = ["copilot-native", "openrouter"] as const;
 export type ProviderType = (typeof PROVIDERS)[number];
 
 export function isProviderType(p: unknown): p is ProviderType {
