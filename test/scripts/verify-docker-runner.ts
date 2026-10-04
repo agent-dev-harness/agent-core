@@ -62,11 +62,12 @@ async function main(): Promise<void> {
 
     const { execCommand } = await import('../../src/workspace/dockerRunner');
     const { getExecCommand, initializeWorkspace, getGitSandbox } = await import('../../src/workspace');
-    const { makeRunTerminalDockerHandler } = await import('../../src/execTool');
+    const { makeTerminalDockerHandlers } = await import('../../src/execTool');
 
     check('getExecCommand returns the Docker runner', getExecCommand() === execCommand, null);
 
-    const handler = makeRunTerminalDockerHandler();
+    const terminal = makeTerminalDockerHandlers();
+    const handler = terminal.run_terminal_docker;
 
     const root = await handler({ command: 'pwd' });
     check('runs in the workspace root by default', root.exitCode === 0 && root.stdout.trim() === workspace, root);
@@ -112,7 +113,7 @@ async function main(): Promise<void> {
       { exitCode: big.exitCode, length: big.stdout.length },
     );
 
-    const endless = await handler({ command: 'yes | head -c 700M', timeoutSeconds: 120 });
+    const endless = await handler({ command: 'yes | head -c 700M', initialWaitSeconds: 300 });
     check(
       'survives output larger than the maximum string length',
       endless.exitCode === 0 && endless.stdout.includes('Output truncated'),
@@ -199,7 +200,7 @@ async function main(): Promise<void> {
     );
 
     const turn = new AbortController();
-    const turnAborted = handler({ command: 'sleep 40', timeoutSeconds: 120 }, { abortSignal: turn.signal });
+    const turnAborted = handler({ command: 'sleep 40', initialWaitSeconds: 120 }, { abortSignal: turn.signal });
     setTimeout(() => turn.abort(), 1000);
     const turnStartedAt = Date.now();
     await turnAborted;
@@ -207,6 +208,48 @@ async function main(): Promise<void> {
       "the handler kills its command when the turn's abort signal fires",
       Date.now() - turnStartedAt < 10000 && processesRunning(containerName, 'sleep 40') === '',
       { elapsedMs: Date.now() - turnStartedAt },
+    );
+
+    const slow = await handler({ command: 'echo start; sleep 3; echo end', initialWaitSeconds: 1 });
+    check(
+      'a command still running after its initial wait keeps running and returns a shellId',
+      slow.status === 'running' && slow.exitCode === null && slow.stdout === 'start\n' && typeof slow.shellId === 'string' &&
+        processesRunning(containerName, 'sleep 3') !== '',
+      slow,
+    );
+    const slowDone = await terminal.read_terminal_docker({ shellId: slow.shellId, waitSeconds: 30 });
+    check(
+      'read_terminal_docker returns the rest of the output and the exit code',
+      slowDone.status === 'exited' && slowDone.exitCode === 0 && slowDone.stdout === 'end\n',
+      slowDone,
+    );
+
+    const interactive = await handler({ command: 'read -r line; echo "got:$line"', mode: 'async' });
+    const answered = await terminal.write_terminal_docker({ shellId: interactive.shellId, input: 'hello\n', waitSeconds: 10 });
+    check(
+      'an async command takes input through write_terminal_docker',
+      answered.status === 'exited' && answered.exitCode === 0 && answered.stdout === 'got:hello\n',
+      answered,
+    );
+
+    const toStop = await handler({ command: 'sleep 41 & sleep 42', initialWaitSeconds: 0 });
+    const stopped = await terminal.stop_terminal_docker({ shellId: toStop.shellId });
+    check(
+      'stop_terminal_docker kills a background command and its children',
+      stopped.status === 'exited' && processesRunning(containerName, 'sleep 41') === '' && processesRunning(containerName, 'sleep 42') === '',
+      stopped,
+    );
+
+    const session = new AbortController();
+    const sessionTerminal = makeTerminalDockerHandlers(session.signal);
+    await sessionTerminal.run_terminal_docker({ command: 'sleep 43', mode: 'async' });
+    await sessionTerminal.run_terminal_docker({ command: 'sleep 44', initialWaitSeconds: 0 });
+    session.abort();
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    check(
+      'ending the session kills its background commands',
+      processesRunning(containerName, 'sleep 43') === '' && processesRunning(containerName, 'sleep 44') === '',
+      null,
     );
 
     fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');

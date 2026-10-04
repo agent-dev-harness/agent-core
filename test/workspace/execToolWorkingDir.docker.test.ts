@@ -30,6 +30,7 @@ function createMockChild(pid: number) {
         return true;
       }),
       end: vi.fn(),
+      on: vi.fn(),
     },
     on: vi.fn((event: string, cb: (...args: any[]) => void) => {
       (listeners[event] ||= []).push(cb);
@@ -76,7 +77,7 @@ describe("docker runner workingDir handling", () => {
       mainChild.stdinWrites[0],
       `cd '${WS_ROOT}/docs' || exit 91\n` +
         `case "$(pwd -P)/" in "$(cd '${WS_ROOT}' && pwd -P)"/*) ;; *) echo '${TRAVERSAL_ERROR}' >&2; exit 1 ;; esac\n` +
-        `ls -la\n`,
+        `ls -la\n\0`,
       "Expected the command stream to start with a quoted cd guard, then the command",
     );
   });
@@ -91,7 +92,7 @@ describe("docker runner workingDir handling", () => {
     mainChild.emit("close", 0);
     await p;
 
-    assert.strictEqual(mainChild.stdinWrites[0], "ls -la\n");
+    assert.strictEqual(mainChild.stdinWrites[0], "ls -la\n\0");
   });
 
   it("rejects traversal before spawning docker at all", async () => {

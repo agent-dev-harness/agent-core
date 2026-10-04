@@ -30,7 +30,7 @@ describe("Docker Cleanup & Orphan Handling", () => {
       on: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
-      stdin: { writable: true, write: vi.fn(), end: vi.fn() },
+      stdin: { writable: true, write: vi.fn(), end: vi.fn(), on: vi.fn() },
       once: vi.fn(),
       removeAllListeners: vi.fn(),
     };
@@ -71,7 +71,7 @@ describe("Docker Cleanup & Orphan Handling", () => {
       kill: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
-      stdin: { writable: true, write: vi.fn(), end: vi.fn() },
+      stdin: { writable: true, write: vi.fn(), end: vi.fn(), on: vi.fn() },
       on: vi.fn((event: string, cb: (...args: any[]) => void) => {
         (listeners[event] ||= []).push(cb);
         return child;

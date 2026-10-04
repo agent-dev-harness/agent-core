@@ -1,4 +1,5 @@
 import * as path from "path";
+import { shellQuotePath } from "./execHelpers";
 
 export type ExecCommand = (
     command: string,
@@ -37,17 +38,24 @@ export class GitSandbox {
 
     protected async git(args: string[]): Promise<string> {
         const env = [
-            `HOME=${this.workTree}`,
-            `GIT_DIR=${this.gitDir}`,
-            `GIT_WORK_TREE=${this.workTree}`,
+            `HOME=${shellQuotePath(this.workTree)}`,
+            `GIT_DIR=${shellQuotePath(this.gitDir)}`,
+            `GIT_WORK_TREE=${shellQuotePath(this.workTree)}`,
             `GIT_PAGER=cat`,
         ].join(" ");
 
-        const command = `${env} git ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(" ")}`;
+        const command = `${env} git ${args.map(shellQuotePath).join(" ")}`;
         const result = await this.execCommand(command, AbortSignal.timeout(GIT_TIMEOUT_MS));
 
         if (result.exitCode !== 0) {
             const message = result.stderr ? result.stderr.trim() : "(no stderr)";
+            if (this.initialized && /not a git repository/i.test(message)) {
+                throw new Error(
+                    `GitSandbox: the checkpoint repository at ${this.gitDir} is gone, so earlier checkpoints ` +
+                    "can't be restored. Something deleted the workspace's snapshots/ directory (for example " +
+                    `an agent's \`rm -rf ./*\`). Git said: ${message}`
+                );
+            }
             throw new Error(
                 `Git command failed (exit ${result.exitCode}): ${message}`
             );
@@ -124,16 +132,16 @@ export class GitSandbox {
         this.initialized = true;
 
         const headPath = path.join(this.gitDir, "HEAD");
-        const alreadyInitialized = await this.execCommand(`test -f '${headPath}'`)
+        const alreadyInitialized = await this.execCommand(`test -f ${shellQuotePath(headPath)}`)
             .then(r => r.exitCode === 0);
 
         if (!alreadyInitialized) {
-            await this.sh(`mkdir -p '${this.gitDir}' '${this.workTree}'`);
+            await this.sh(`mkdir -p ${shellQuotePath(this.gitDir)} ${shellQuotePath(this.workTree)}`);
 
             await this.git(["init"]);
 
             const excludePath = path.join(this.gitDir, "info", "exclude");
-            await this.sh(`mkdir -p '${path.join(this.gitDir, "info")}' && echo 'snapshots/' > '${excludePath}'`);
+            await this.sh(`mkdir -p ${shellQuotePath(path.join(this.gitDir, "info"))} && echo 'snapshots/' > ${shellQuotePath(excludePath)}`);
 
             await this.git(["config", "user.email", "sandbox@aistudio.local"]);
             await this.git(["config", "user.name", "AI Studio Sandbox"]);

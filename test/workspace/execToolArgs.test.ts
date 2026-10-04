@@ -1,45 +1,45 @@
 import { describe, it, expect } from 'vitest';
-import { parseExecToolArgs, buildExecOptions, truncateExecResult, MAX_TOOL_OUTPUT_CHARS, MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS } from '../../src/execTool';
+import { parseExecToolArgs, truncateExecResult, MAX_TOOL_OUTPUT_CHARS, MIN_WAIT_SECONDS, MAX_WAIT_SECONDS, DEFAULT_INITIAL_WAIT_SECONDS } from '../../src/execTool';
 import { resolveWorkDir, TRAVERSAL_ERROR } from '../../src/workspace/execHelpers';
 
 describe('parseExecToolArgs', () => {
-  it('parses command, workingDir, and timeoutSeconds', () => {
-    expect(parseExecToolArgs({ command: 'ls', workingDir: 'docs', timeoutSeconds: 120 })).toEqual({
+  it('parses command, workingDir, initialWaitSeconds and mode', () => {
+    expect(parseExecToolArgs({ command: 'ls', workingDir: 'docs', initialWaitSeconds: 120, mode: 'async' })).toEqual({
       command: 'ls',
       workDir: 'docs',
-      timeoutMs: 120_000,
+      initialWaitMs: 120_000,
+      mode: 'async',
     });
   });
 
-  it('defaults to root workDir and the default timeout when timeoutSeconds is omitted', () => {
+  it('defaults to root workDir, sync mode and the default initial wait', () => {
     expect(parseExecToolArgs({ command: 'pwd' })).toEqual({
       command: 'pwd',
       workDir: undefined,
-      timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
+      initialWaitMs: DEFAULT_INITIAL_WAIT_SECONDS * 1000,
+      mode: 'sync',
     });
     expect(parseExecToolArgs(undefined)).toEqual({
       command: '',
       workDir: undefined,
-      timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
+      initialWaitMs: DEFAULT_INITIAL_WAIT_SECONDS * 1000,
+      mode: 'sync',
     });
   });
 
-  it('clamps timeoutSeconds into the 30..600 window (bash-tool parity), falling back to the default on invalid input', () => {
-    expect(parseExecToolArgs({ command: 'x', timeoutSeconds: 5 }).timeoutMs).toBe(MIN_TIMEOUT_SECONDS * 1000);
-    expect(parseExecToolArgs({ command: 'x', timeoutSeconds: 100_000 }).timeoutMs).toBe(MAX_TIMEOUT_SECONDS * 1000);
-    expect(parseExecToolArgs({ command: 'x', timeoutSeconds: Number.NaN }).timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
-    expect(parseExecToolArgs({ command: 'x', timeoutSeconds: '120' }).timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
+  it('clamps initialWaitSeconds into 0..600, falling back to the default on invalid input', () => {
+    expect(parseExecToolArgs({ command: 'x', initialWaitSeconds: -5 }).initialWaitMs).toBe(MIN_WAIT_SECONDS * 1000);
+    expect(parseExecToolArgs({ command: 'x', initialWaitSeconds: 100_000 }).initialWaitMs).toBe(MAX_WAIT_SECONDS * 1000);
+    expect(parseExecToolArgs({ command: 'x', initialWaitSeconds: Number.NaN }).initialWaitMs).toBe(DEFAULT_INITIAL_WAIT_SECONDS * 1000);
+    expect(parseExecToolArgs({ command: 'x', initialWaitSeconds: 'soon' }).initialWaitMs).toBe(DEFAULT_INITIAL_WAIT_SECONDS * 1000);
   });
 
-  it('always yields a defined opts.timeoutMs from buildExecOptions, even with no signal-independent override requested', () => {
-    const parsed = parseExecToolArgs({ command: 'sleep 100000' });
-    const opts = buildExecOptions(parsed, undefined);
-    expect(opts.timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
+  it('accepts a number sent as a string, as models often do', () => {
+    expect(parseExecToolArgs({ command: 'x', initialWaitSeconds: '300' }).initialWaitMs).toBe(300_000);
   });
 
-  it('bounds the output the runner keeps to what the tool returns', () => {
-    const opts = buildExecOptions(parseExecToolArgs({ command: 'yes' }), undefined);
-    expect(opts.outputLimit?.maxChars).toBe(MAX_TOOL_OUTPUT_CHARS);
+  it('treats any mode other than "async" as sync', () => {
+    expect(parseExecToolArgs({ command: 'x', mode: 'background' }).mode).toBe('sync');
   });
 });
 
@@ -61,6 +61,13 @@ describe('resolveWorkDir', () => {
     expect(resolveWorkDir('docs/../../..', ROOT)).toEqual({ ok: false, error: TRAVERSAL_ERROR });
     expect(resolveWorkDir('/etc', ROOT)).toEqual({ ok: false, error: TRAVERSAL_ERROR });
     expect(resolveWorkDir('/ws/rootEvil', ROOT)).toEqual({ ok: false, error: TRAVERSAL_ERROR });
+  });
+
+  it('accepts the root itself when the root is given with a trailing slash', () => {
+    expect(resolveWorkDir('.', '/ws/root/')).toEqual({ ok: true, dir: ROOT });
+    expect(resolveWorkDir('/ws/root', '/ws/root/')).toEqual({ ok: true, dir: ROOT });
+    expect(resolveWorkDir('docs', '/ws/root/')).toEqual({ ok: true, dir: '/ws/root/docs' });
+    expect(resolveWorkDir('/ws/rootEvil', '/ws/root/')).toEqual({ ok: false, error: TRAVERSAL_ERROR });
   });
 
   it('treats empty/blank as the workspace root', () => {

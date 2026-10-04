@@ -22,7 +22,7 @@ describe("Docker workspace mount verification", () => {
       on: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
-      stdin: { writable: true, write: vi.fn(), end: vi.fn() },
+      stdin: { writable: true, write: vi.fn(), end: vi.fn(), on: vi.fn() },
       once: vi.fn(),
       removeAllListeners: vi.fn(),
     } as any);
@@ -97,7 +97,7 @@ describe("Docker workspace mount verification", () => {
       on: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
-      stdin: { writable: true, write: vi.fn(), end: vi.fn() },
+      stdin: { writable: true, write: vi.fn(), end: vi.fn(), on: vi.fn() },
       once: vi.fn(),
       removeAllListeners: vi.fn(),
     } as any);
@@ -119,7 +119,7 @@ describe("Docker workspace mount verification", () => {
       on: vi.fn(),
       stdout: { on: vi.fn() },
       stderr: { on: vi.fn() },
-      stdin: { writable: true, write: vi.fn(), end: vi.fn() },
+      stdin: { writable: true, write: vi.fn(), end: vi.fn(), on: vi.fn() },
       once: vi.fn(),
       removeAllListeners: vi.fn(),
     } as any);
@@ -131,5 +131,23 @@ describe("Docker workspace mount verification", () => {
 
     assert.strictEqual(vi.mocked(cp.spawnSync).mock.calls.length, 1, "expected the docker exec test -d check to run only once");
     assert.strictEqual(vi.mocked(cp.spawn).mock.calls.length, 2);
+  });
+  it("rejects a relative WORKSPACE_HOST_LOCATION with a clear error", async () => {
+    process.env.WORKSPACE_HOST_LOCATION = "workspace";
+    const { runDockerProcess } = await import("../src/workspace/dockerRunner.js");
+
+    await expect(runDockerProcess("echo hi")).rejects.toThrow(/must be an absolute path/);
+  });
+
+  it("drops a trailing slash from WORKSPACE_HOST_LOCATION, so the root itself is a valid workingDir", async () => {
+    process.env.WORKSPACE_HOST_LOCATION = "/tmp/applet_workspace/";
+    const cp = await import("child_process");
+    vi.mocked(cp.spawnSync).mockReturnValue({ status: 0, error: undefined } as any);
+    const { getWorkspaceRoot, getGitDir } = await import("../src/workspace/dockerRunner.js");
+    const { resolveWorkDir } = await import("../src/workspace/execHelpers.js");
+
+    expect(getWorkspaceRoot()).toBe("/tmp/applet_workspace");
+    expect(getGitDir()).toBe("/tmp/applet_workspace/snapshots/.git");
+    expect(resolveWorkDir(".", getWorkspaceRoot())).toEqual({ ok: true, dir: "/tmp/applet_workspace" });
   });
 });
