@@ -46,7 +46,10 @@ Arguments are parsed and clamped in `src/execTool.ts`; `workingDir` is resolved 
 checked in `src/workspace/execHelpers.ts`. A missing directory exits 91; a deadline kill
 exits 124 with a note on stderr. Handlers pass a session-scoped abort signal that only
 fires on teardown, so `parseExecToolArgs` must always return a `timeoutMs`, or a hung
-command is never killed.
+command is never killed. `SessionWrapper` also gives each custom tool call a per-turn
+`abortSignal` in its invocation, fired by the session's `abort` event, and the handler
+kills the command when either signal fires. The SDK itself gives tool handlers no
+cancellation signal.
 
 Both runners spawn detached and kill the whole process group. Docker mode also kills
 inside the container, which the host can't reach through the group. It finds the run's

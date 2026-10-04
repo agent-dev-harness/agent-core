@@ -53,7 +53,7 @@ gate on `main` and tags that commit `v<version>`.
 
 | Import | Contents |
 |---|---|
-| `@agent-dev-harness/agent-core` | `SessionWrapper`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
+| `@agent-dev-harness/agent-core` | `SessionWrapper`, `TurnToolInvocation`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
 | `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `selectWorkspaceRunner`, `WorkspaceRunner`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `OPENROUTER_SESSION_ID_HEADER` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
@@ -65,6 +65,11 @@ runner, which runs them on the host: `initializeWorkspace({ runner: 'native' })`
 `selectWorkspaceRunner('native')`. The runner can't change once the workspace is initialized.
 To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
+
+`SessionWrapper` passes each custom tool handler a `TurnToolInvocation`, whose `abortSignal`
+fires when the turn is aborted (`session.abort()`). A handler from
+`makeRunTerminalDockerHandler` kills its command when that signal fires, so pass the
+invocation through if you wrap it: `defineTool(name, description, parameters, (args, invocation) => handler(args, invocation))`.
 
 To group a session's OpenRouter requests, pass
 `registry.getExecutionConfig(model, { openRouterSessionId })`. The provider config then

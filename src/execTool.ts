@@ -64,14 +64,16 @@ export function buildExecOptions(parsed: ParsedExecToolArgs, workDir: string | u
 }
 
 export function makeRunTerminalDockerHandler(abortSignal?: AbortSignal) {
-  return async (args: unknown) => {
+  return async (args: unknown, invocation?: { abortSignal?: AbortSignal }) => {
+    const signals = [abortSignal, invocation?.abortSignal].filter((s): s is AbortSignal => s !== undefined);
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
     const parsed = parseExecToolArgs(args);
     const resolved = resolveWorkDir(parsed.workDir, getWorkspaceRoot());
     if (!resolved.ok) {
       return { stdout: '', stderr: resolved.error, exitCode: 1 };
     }
     const execCommand = getExecCommand();
-    const result = await execCommand(parsed.command, abortSignal, buildExecOptions(parsed, resolved.dir));
+    const result = await execCommand(parsed.command, signal, buildExecOptions(parsed, resolved.dir));
     return truncateExecResult(result);
   };
 }

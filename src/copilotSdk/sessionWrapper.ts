@@ -9,6 +9,7 @@ import {
   SessionEventHandler,
   SessionEventType,
   Tool,
+  ToolInvocation,
   TypedSessionEventHandler,
 } from './boundary';
 
@@ -23,6 +24,10 @@ type ConfigOwnedKeys =
 // The SDK waits only 60s when no timeout is given, and Node clamps any timer
 // delay above 2^31-1 ms to 1 ms, so this is the closest to "no deadline".
 export const NO_TURN_DEADLINE_MS = 2 ** 31 - 1;
+
+// What SessionWrapper passes to custom tool handlers. abortSignal fires when the
+// current turn is aborted, so a tool can stop work whose result would be discarded.
+export type TurnToolInvocation = ToolInvocation & { abortSignal: AbortSignal };
 
 export type SessionWrapperBaseConfig = Omit<SessionConfig, ConfigOwnedKeys>;
 
@@ -96,6 +101,18 @@ function buildSystemPromptUpdateNotice(
   );
 }
 
+function withTurnSignal(tool: Tool, turnSignal: () => AbortSignal): Tool {
+  const handler = tool.handler;
+  if (!handler) return tool;
+  return {
+    ...tool,
+    handler: (args, invocation) => {
+      const turnInvocation: TurnToolInvocation = { ...invocation, abortSignal: turnSignal() };
+      return handler(args, turnInvocation);
+    },
+  };
+}
+
 export class SessionWrapper {
   private readonly _allToolNames: readonly string[];
 
@@ -117,6 +134,10 @@ export class SessionWrapper {
 
   private _announcedSystemPrompt: string | undefined = undefined;
 
+  private _turnAbort = new AbortController();
+
+  private _unsubscribeAbort: (() => void) | undefined = undefined;
+
   constructor(
     private readonly _client?: CopilotClient,
     toolsConfig: SessionWrapperToolsConfig = {},
@@ -128,7 +149,10 @@ export class SessionWrapper {
         "SessionWrapper: the built-in 'bash' tool runs on the host and is not allowed; use run_terminal_docker instead."
       );
     }
-    const customEntries: [string, Tool][] = (toolsConfig.custom ?? []).map((tool) => [tool.name, tool]);
+    const customEntries: [string, Tool][] = (toolsConfig.custom ?? []).map((tool) => [
+      tool.name,
+      withTurnSignal(tool, () => this._turnAbort.signal),
+    ]);
     this._customTools = new Map(customEntries);
     this._allToolNames = [...builtins, ...this._customTools.keys()];
     this._allToolNamesSet = new Set(this._allToolNames);
@@ -285,6 +309,12 @@ export class SessionWrapper {
     }
 
     this._announcedSystemPrompt = this._systemPrompt;
+
+    this._turnAbort = new AbortController();
+    this._unsubscribeAbort?.();
+    this._unsubscribeAbort = this._session.on((event) => {
+      if (event.type === 'abort') this._turnAbort.abort();
+    });
 
     onSessionId?.(this._session.sessionId);
 

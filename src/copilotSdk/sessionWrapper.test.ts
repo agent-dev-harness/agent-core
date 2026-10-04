@@ -19,6 +19,7 @@ function fakeClient(): {
     const session = {
       sessionId,
       sendAndWait: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(() => () => {}),
     } as unknown as CopilotSession;
     sessions.push(session);
     return session;
@@ -104,7 +105,7 @@ describe('SessionWrapper._createConfig (schema is fixed at construction)', () =>
     const config = wrapper._createConfig();
 
     expect(config.availableTools).toEqual(['view', 'grep', 'glob', 'edit', 'my_custom_tool']);
-    expect(config.tools).toEqual([tool]);
+    expect(config.tools).toEqual([{ ...tool, handler: expect.any(Function) }]);
     for (const req of [writeRequest(), readRequest(), customToolRequest('my_custom_tool')]) {
       await expect(config.onPermissionRequest(req, { sessionId: 's1' })).resolves.toEqual({
         kind: 'approve-once',
@@ -198,7 +199,7 @@ describe('SessionWrapper.enableTools/disableTools', () => {
     const config = wrapper._createConfig();
 
     expect(config.availableTools).toEqual(['run_gh_command']);
-    expect(config.tools).toEqual([tool]);
+    expect(config.tools).toEqual([{ ...tool, handler: expect.any(Function) }]);
     await expect(
       config.onPermissionRequest(customToolRequest('run_gh_command'), { sessionId: 's1' })
     ).resolves.toMatchObject({ kind: 'reject' });
@@ -235,6 +236,34 @@ describe('SessionWrapper.enableTools/disableTools', () => {
 });
 
 describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
+  it("passes custom tools a turn signal that fires when the session's turn is aborted", async () => {
+    const { client, sessions } = fakeClient();
+    const original = vi.fn(async (_args: unknown, _invocation: unknown) => 'ok');
+    const wrapper = new SessionWrapper(client, { custom: [{ name: 'slow', handler: original }] }).setModelName(
+      'claude-sonnet-4.5'
+    );
+    const invocation = { sessionId: 's', toolCallId: 'c1', toolName: 'slow', arguments: {} };
+    const wrapped = wrapper._createConfig().tools?.[0]?.handler;
+    const passedSignal = (call: number) =>
+      (original.mock.calls[call]?.[1] as { abortSignal: AbortSignal }).abortSignal;
+
+    await wrapper.sendAndWait('turn one');
+    await wrapped?.({ x: 1 }, invocation);
+    expect(original).toHaveBeenLastCalledWith({ x: 1 }, expect.objectContaining(invocation));
+    expect(passedSignal(0).aborted).toBe(false);
+
+    const [listener] = vi.mocked(sessions[0]!.on).mock.calls[0] as unknown as [(event: { type: string }) => void];
+    listener({ type: 'assistant.message' });
+    expect(passedSignal(0).aborted).toBe(false);
+    listener({ type: 'abort' });
+    expect(passedSignal(0).aborted).toBe(true);
+
+    await wrapper.sendAndWait('turn two');
+    await wrapped?.({}, invocation);
+    expect(passedSignal(1).aborted).toBe(false);
+  });
+
+
   it('waits with no practical deadline unless the caller gives a timeout', async () => {
     const { client, sessions } = fakeClient();
     const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');

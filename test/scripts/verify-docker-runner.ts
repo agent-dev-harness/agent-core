@@ -176,6 +176,17 @@ async function main(): Promise<void> {
       null,
     );
 
+    const turn = new AbortController();
+    const turnAborted = handler({ command: 'sleep 40', timeoutSeconds: 120 }, { abortSignal: turn.signal });
+    setTimeout(() => turn.abort(), 1000);
+    const turnStartedAt = Date.now();
+    await turnAborted;
+    check(
+      "the handler kills its command when the turn's abort signal fires",
+      Date.now() - turnStartedAt < 10000 && processesRunning(containerName, 'sleep 40') === '',
+      { elapsedMs: Date.now() - turnStartedAt },
+    );
+
     fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');
     await initializeWorkspace();
     const sandbox = getGitSandbox();
