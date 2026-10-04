@@ -82,7 +82,7 @@ export class CapiProxy {
           return;
         }
 
-        if (req.url?.startsWith("/chat/completions") && req.method === "POST") {
+        if (req.url?.split("?")[0]?.endsWith("/chat/completions") && req.method === "POST") {
           let body = "";
           req.on("data", (chunk) => (body += chunk));
           req.on("end", async () => {
