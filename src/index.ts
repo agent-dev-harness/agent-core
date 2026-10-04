@@ -21,6 +21,7 @@ export type {
   SessionListenerEntry,
   SessionWrapperBaseConfig,
   SessionWrapperToolsConfig,
+  TurnToolInvocation,
 } from './copilotSdk/sessionWrapper';
 
 export {

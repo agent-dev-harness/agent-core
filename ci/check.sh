@@ -12,3 +12,5 @@ echo "=== build ==="
 npm run build
 echo "=== test ==="
 npm test
+echo "=== verify:docker (needs a running Docker daemon) ==="
+npm run verify:docker

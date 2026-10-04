@@ -7,7 +7,6 @@ const entryPoints = [
     'src/workspace/index.ts',
     'src/proxy/index.ts',
     'src/types.ts',
-    'src/testing.ts',
 ];
 
 rmSync('dist', { recursive: true, force: true });
