@@ -89,3 +89,25 @@ describe('ProviderRegistry openRouterSessionId', () => {
     expect(gemini.provider?.headers).toBeUndefined();
   });
 });
+
+describe('ProviderRegistry routing with COPILOT_API_URL set', () => {
+  it('sends only openai straight to it, whatever VITEST says, so a consumer test run routes like production', () => {
+    const saved = { url: process.env.COPILOT_API_URL, vitest: process.env.VITEST, anthropic: process.env.ANTHROPIC_API_KEY };
+    process.env.COPILOT_API_URL = 'http://proxy.test';
+    process.env.VITEST = 'true';
+    process.env.ANTHROPIC_API_KEY = 'a-key';
+    try {
+      const registry = new ProviderRegistry('key');
+      expect(registry.getProviderConfig('openai', 'gpt-x')?.baseUrl).toBe('http://proxy.test');
+      expect(registry.getProviderConfig('gemini', 'gemini-3.1-flash-lite')?.baseUrl).toBe(
+        'http://proxy.test/api/providers/gemini/v1beta/openai/'
+      );
+      expect(registry.getProviderConfig('anthropic', 'claude-x')?.baseUrl).toBe('https://api.anthropic.com/v1/');
+    } finally {
+      for (const [key, value] of [['COPILOT_API_URL', saved.url], ['VITEST', saved.vitest], ['ANTHROPIC_API_KEY', saved.anthropic]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+});

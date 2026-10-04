@@ -93,7 +93,7 @@ export class ProviderRegistry {
     }
 
     if (process.env.COPILOT_API_URL) {
-      if (provider === 'openai' || process.env.VITEST === 'true') {
+      if (provider === 'openai') {
         return {
           type: 'openai',
           baseUrl: process.env.COPILOT_API_URL,

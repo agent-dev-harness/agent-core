@@ -79,7 +79,6 @@ configuration, is passed in by the caller.
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `VITEST` | provider registry | When `true` and `COPILOT_API_URL` is set, the registry routes every provider through it (otherwise only `openai`). |
 | `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
 | `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required. |
 | `COPILOT_API_URL` | provider registry | Base URL of the provider proxy. When unset, providers route to `http://localhost:$PORT`. |
@@ -93,10 +92,6 @@ configuration, is passed in by the caller.
 
 The Gemini provider takes its key only from the `ProviderRegistry` constructor; the
 package does not read `GEMINI_API_KEY` itself.
-
-## Known limitations
-
-- `VITEST` changes provider routing inside production code.
 
 ## Development
 
