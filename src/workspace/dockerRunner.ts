@@ -2,7 +2,7 @@ import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import * as path from "path";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, OutputLimit, OutputWindow, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputLimit, OutputWindow, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir, shareOutputBudget } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -98,11 +98,12 @@ function verifyWorkspaceMount(): void {
 }
 
 // A command started in the container. Output is read in windows: each takeOutput() returns what
-// arrived since the previous call, truncated to the output limit.
+// arrived since the previous call, truncated to the output limit, or with maxTotalChars to a
+// budget stdout and stderr share.
 export interface DockerRun {
   readonly spawned: boolean;
   readonly exited: Promise<number | null>;
-  takeOutput(): { stdout: string; stderr: string };
+  takeOutput(maxTotalChars?: number): { stdout: string; stderr: string };
   write(input: string): boolean;
   closeStdin(): void;
   kill(): Promise<void>;
@@ -307,7 +308,11 @@ export function startDockerProcess(command: string, opts: StartOptions = {}): Do
   return {
     spawned: true,
     exited,
-    takeOutput: () => ({ stdout: stdout.take(), stderr: stderr.take() }),
+    takeOutput: (maxTotalChars?: number) => {
+      if (maxTotalChars === undefined) return { stdout: stdout.take(), stderr: stderr.take() };
+      const [stdoutChars, stderrChars] = shareOutputBudget(stdout.pendingLength, stderr.pendingLength, maxTotalChars);
+      return { stdout: stdout.take(stdoutChars), stderr: stderr.take(stderrChars) };
+    },
     write: (input: string) => {
       if (!stdinOpen) return false;
       child.stdin.write(input);

@@ -152,6 +152,58 @@ describe('runForcedToolTurnUntilTimeout', () => {
     }
   });
 
+  it('returns undefined as the result when getResult has nothing, instead of inventing a value', async () => {
+    const mockSession = {
+      sessionId: 's-undefined',
+      on: vi.fn().mockImplementation((handler) => {
+        handler({ type: 'tool.execution_start', data: { toolName: 'my_tool' } });
+        return vi.fn();
+      }),
+      sendAndWait: vi.fn().mockResolvedValue(undefined),
+    } as any;
+    const mockClient = { createSession: vi.fn().mockResolvedValue(mockSession), resumeSession: vi.fn() } as any;
+
+    const turn = await runForcedToolTurnUntilTimeout(makeWrapper(mockClient), 'my_tool', 'go', {
+      getResult: () => undefined,
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(turn).toMatchObject({ toolCalled: true, result: undefined });
+  });
+
+  it("gives the caller its tool enablement back after narrowing for the nudge, whether or not the retry succeeds", async () => {
+    for (const succeedOnRetry of [true, false]) {
+      const handlers: Array<(e: unknown) => void> = [];
+      let turnCount = 0;
+      const mockSession = {
+        sessionId: `s-restore-${succeedOnRetry}`,
+        on: vi.fn().mockImplementation((handler) => {
+          handlers.push(handler);
+          return () => handlers.splice(handlers.indexOf(handler), 1);
+        }),
+        sendAndWait: vi.fn().mockImplementation(async () => {
+          turnCount++;
+          if (succeedOnRetry && turnCount === 2) {
+            [...handlers].forEach((h) => h({ type: 'tool.execution_start', data: { toolName: 'my_tool' } }));
+          }
+        }),
+      } as any;
+      const mockClient = { createSession: vi.fn().mockResolvedValue(mockSession), resumeSession: vi.fn().mockResolvedValue(mockSession) } as any;
+      const wrapper = makeWrapper(mockClient, ['my_tool', 'view', 'edit']).disableTools('edit');
+
+      const turn = runForcedToolTurnUntilTimeout(wrapper, 'my_tool', 'go', {
+        maxRetries: 1,
+        availableTools: ['my_tool', 'view', 'edit'],
+        getResult: () => null,
+        logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      });
+      if (succeedOnRetry) await turn;
+      else await expect(turn).rejects.toThrow(/Session ended without calling/);
+
+      expect([wrapper.isToolEnabled('my_tool'), wrapper.isToolEnabled('view'), wrapper.isToolEnabled('edit')]).toEqual([true, true, false]);
+    }
+  });
+
   it('passes timeoutMs straight through to sendAndWait (no watchdog ceiling applied)', async () => {
     const mockSession = {
       sessionId: 's2',

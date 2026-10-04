@@ -1,6 +1,6 @@
 import type { OutputLimit } from "./workspace";
 import { getWorkspaceRoot, resolveWorkDir } from "./workspace";
-import { OutputCollector } from "./workspace/execHelpers";
+import { OutputCollector, scaleOutputLimit, shareOutputBudget } from "./workspace/execHelpers";
 import type { DockerRun } from "./workspace/dockerRunner";
 import { getStartCommand } from "./workspace/workspace";
 
@@ -20,6 +20,10 @@ const TOOL_OUTPUT_LIMIT: OutputLimit = {
 };
 
 const MAX_LISTED_COMMAND_CHARS = 200;
+
+// Each finished command holds its unread output until its exit is read; past this many, the
+// oldest are forgotten so a session that never reads them can't grow without bound.
+export const MAX_UNREAD_EXITED_TERMINALS = 20;
 
 export type ExecMode = "sync" | "async";
 
@@ -59,10 +63,10 @@ export function parseExecToolArgs(args: unknown): ParsedExecToolArgs {
   return { command, workDir, initialWaitMs, mode };
 }
 
-function truncateText(text: string): string {
+function truncateText(text: string, maxChars: number): string {
   const collector = new OutputCollector(TOOL_OUTPUT_LIMIT);
   collector.write(text);
-  return collector.finish();
+  return collector.finish(scaleOutputLimit(TOOL_OUTPUT_LIMIT, maxChars));
 }
 
 export function truncateExecResult(result: { stdout: string; stderr: string; exitCode: number | null }): {
@@ -70,10 +74,11 @@ export function truncateExecResult(result: { stdout: string; stderr: string; exi
   stderr: string;
   exitCode: number | null;
 } {
+  const [stdoutChars, stderrChars] = shareOutputBudget(result.stdout.length, result.stderr.length, MAX_TOOL_OUTPUT_CHARS);
   return {
     ...result,
-    stdout: truncateText(result.stdout),
-    stderr: truncateText(result.stderr),
+    stdout: truncateText(result.stdout, stdoutChars),
+    stderr: truncateText(result.stderr, stderrChars),
   };
 }
 
@@ -140,10 +145,18 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
   };
   abortSignal?.addEventListener("abort", () => void stopAll(), { once: true });
 
+  const forgetOldestExited = (): void => {
+    const exited = [...terminals.values()].filter((t) => t.exitCode !== undefined);
+    for (const t of exited.slice(0, Math.max(0, exited.length - MAX_UNREAD_EXITED_TERMINALS))) {
+      terminals.delete(t.shellId);
+    }
+  };
+
   const register = (command: string, run: DockerRun): TerminalEntry => {
     const entry: TerminalEntry = { shellId: `shell-${nextId++}`, command, startedAt: Date.now(), run, exitCode: undefined };
     void run.exited.then((code) => {
       entry.exitCode = code;
+      forgetOldestExited();
     });
     terminals.set(entry.shellId, entry);
     if (abortSignal?.aborted) void run.kill();
@@ -160,14 +173,14 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       shellId
         ? `${tool}: no terminal with shellId '${shellId}'. ` +
             (known.length ? `Known shellIds: ${known.join(", ")}.` : "No terminals are running.") +
-            " A terminal is forgotten once its exit has been reported."
+            ` A terminal is forgotten once its exit has been reported, or when more than ${MAX_UNREAD_EXITED_TERMINALS} finished ones are unread.`
         : `${tool}: missing required argument 'shellId' (got: ${describeKeys(record)}).`,
     );
   };
 
   // Reports output since the last report; once the exit has been reported the terminal is dropped.
   const report = (entry: TerminalEntry, note?: string): TerminalResult => {
-    const output = entry.run.takeOutput();
+    const output = entry.run.takeOutput(MAX_TOOL_OUTPUT_CHARS);
     if (entry.exitCode === undefined) {
       return { ...output, exitCode: null, shellId: entry.shellId, status: "running", ...(note ? { note } : {}) };
     }
@@ -213,7 +226,7 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       const outcome = await waitForExit(run, parsed.initialWaitMs, signal);
       if (outcome === "aborted") await run.kill();
       if (outcome !== "waiting") {
-        return { ...run.takeOutput(), exitCode: await run.exited };
+        return { ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS), exitCode: await run.exited };
       }
       const entry = register(parsed.command, run);
       return report(

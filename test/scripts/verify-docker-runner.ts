@@ -113,6 +113,13 @@ async function main(): Promise<void> {
       { exitCode: big.exitCode, length: big.stdout.length },
     );
 
+    const bothStreams = await handler({ command: "head -c 60000 /dev/zero | tr '\\0' a; head -c 60000 /dev/zero | tr '\\0' b >&2" });
+    check(
+      'stdout and stderr together stay within the tool output budget',
+      bothStreams.stdout.length + bothStreams.stderr.length <= 40_000 && bothStreams.stdout.includes('Output truncated') && bothStreams.stderr.includes('Output truncated'),
+      { stdout: bothStreams.stdout.length, stderr: bothStreams.stderr.length },
+    );
+
     const endless = await handler({ command: 'yes | head -c 700M', initialWaitSeconds: 300 });
     check(
       'survives output larger than the maximum string length',

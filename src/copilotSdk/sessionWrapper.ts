@@ -212,8 +212,12 @@ export class SessionWrapper {
     return this;
   }
 
-  private _setEnablement(names: readonly string[], enabled: boolean): void {
-    const methodName = enabled ? 'enableTools' : 'disableTools';
+  isToolEnabled(name: string): boolean {
+    this._assertKnownTools('isToolEnabled', [name]);
+    return this._enabledTools.has(name);
+  }
+
+  private _assertKnownTools(methodName: string, names: readonly string[]): void {
     for (const name of names) {
       if (!this._allToolNamesSet.has(name)) {
         throw new Error(
@@ -222,6 +226,10 @@ export class SessionWrapper {
         );
       }
     }
+  }
+
+  private _setEnablement(names: readonly string[], enabled: boolean): void {
+    this._assertKnownTools(enabled ? 'enableTools' : 'disableTools', names);
     for (const name of names) {
       if (enabled) {
         this._enabledTools.add(name);

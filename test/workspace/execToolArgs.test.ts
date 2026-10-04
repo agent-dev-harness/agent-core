@@ -93,6 +93,19 @@ describe('truncateExecResult', () => {
     expect(result.stdout).not.toContain('MIDDLE_MARK');
   });
 
+  it('keeps stdout and stderr together within the budget', () => {
+    const result = truncateExecResult({ stdout: 'O'.repeat(60_000), stderr: 'E'.repeat(60_000), exitCode: 1 });
+    expect(result.stdout.length + result.stderr.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    expect(result.stdout).toContain('Output truncated');
+    expect(result.stderr).toContain('Output truncated');
+  });
+
+  it('keeps a small stderr whole next to a large stdout', () => {
+    const result = truncateExecResult({ stdout: 'O'.repeat(60_000), stderr: 'error: boom', exitCode: 1 });
+    expect(result.stderr).toBe('error: boom');
+    expect(result.stdout.length + result.stderr.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+  });
+
   it('truncates stderr independently', () => {
     const result = truncateExecResult({ stdout: '', stderr: 'E'.repeat(MAX_TOOL_OUTPUT_CHARS + 1), exitCode: 1 });
     expect(result.stderr.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);

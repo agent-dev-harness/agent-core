@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OutputCollector } from '../../src/workspace/execHelpers';
+import { OutputCollector, shareOutputBudget } from '../../src/workspace/execHelpers';
 
 const LIMIT = { maxChars: 40, headChars: 26, tailChars: 13 };
 
@@ -59,5 +59,33 @@ describe('OutputCollector', () => {
     const collector = new OutputCollector(LIMIT);
     for (let i = 0; i < 600; i++) collector.write(chunk);
     expect(collector.finish()).toContain(`omitted ${600 * (1 << 20) - 39} middle characters`);
+  });
+
+  it('finishes within a tighter limit, still counting everything it dropped', () => {
+    const collector = new OutputCollector(LIMIT);
+    collector.write('H'.repeat(26) + 'm'.repeat(100) + 'T'.repeat(13));
+    expect(collector.finish({ maxChars: 20, headChars: 5, tailChars: 4 })).toBe(
+      'H'.repeat(5) + '\n[run_terminal_docker] Output truncated: omitted 130 middle characters.\n' + 'T'.repeat(4),
+    );
+  });
+
+  it('refuses a limit looser than its own, since it no longer holds that much', () => {
+    const collector = new OutputCollector(LIMIT);
+    expect(() => collector.finish({ maxChars: 80, headChars: 50, tailChars: 20 })).toThrow(/tighter/);
+  });
+});
+
+describe('shareOutputBudget', () => {
+  it('leaves output that fits alone', () => {
+    expect(shareOutputBudget(10, 20, 40)).toEqual([10, 20]);
+  });
+
+  it('keeps a stream that fits in half whole and gives the other the rest', () => {
+    expect(shareOutputBudget(100, 5, 40)).toEqual([35, 5]);
+    expect(shareOutputBudget(5, 100, 40)).toEqual([5, 35]);
+  });
+
+  it('splits evenly when both streams are large', () => {
+    expect(shareOutputBudget(100, 100, 40)).toEqual([20, 20]);
   });
 });
