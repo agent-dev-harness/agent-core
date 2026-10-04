@@ -20,6 +20,10 @@ type ConfigOwnedKeys =
   | 'onPermissionRequest'
   | 'model';
 
+// The SDK waits only 60s when no timeout is given, and Node clamps any timer
+// delay above 2^31-1 ms to 1 ms, so this is the closest to "no deadline".
+export const NO_TURN_DEADLINE_MS = 2 ** 31 - 1;
+
 export type SessionWrapperBaseConfig = Omit<SessionConfig, ConfigOwnedKeys>;
 
 export type SessionListenerEntry =
@@ -289,8 +293,8 @@ export class SessionWrapper {
     );
     try {
       return await (typeof effectivePrompt === 'string'
-        ? this._session.sendAndWait(effectivePrompt, timeout)
-        : this._session.sendAndWait(effectivePrompt, timeout));
+        ? this._session.sendAndWait(effectivePrompt, timeout ?? NO_TURN_DEADLINE_MS)
+        : this._session.sendAndWait(effectivePrompt, timeout ?? NO_TURN_DEADLINE_MS));
     } finally {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     }

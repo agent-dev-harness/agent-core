@@ -235,6 +235,17 @@ describe('SessionWrapper.enableTools/disableTools', () => {
 });
 
 describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
+  it('waits with no practical deadline unless the caller gives a timeout', async () => {
+    const { client, sessions } = fakeClient();
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+
+    await wrapper.sendAndWait('turn one');
+    await wrapper.sendAndWait('turn two', 5000);
+
+    expect(sessions[0]?.sendAndWait).toHaveBeenCalledWith(expect.any(String), 2 ** 31 - 1);
+    expect(sessions[1]?.sendAndWait).toHaveBeenCalledWith(expect.any(String), 5000);
+  });
+
   it('the first call always creates; a second call on the same instance resumes', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
     const wrapper = new SessionWrapper(client, { builtins: ['edit'] }).setModelName('claude-sonnet-4.5');

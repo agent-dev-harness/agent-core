@@ -24,7 +24,9 @@ directory and process-level state.
   to `true`, which replaces any `onPermissionRequest` you pass. `SessionWrapper` always
   passes `false`.
 - `sendAndWait(prompt, timeout)` waits 60s when no timeout is given. When it times out
-  the call throws but the turn keeps running.
+  the call throws but the turn keeps running. `SessionWrapper.sendAndWait` and
+  `runForcedToolTurnUntilTimeout` pass `NO_TURN_DEADLINE_MS` (2^31-1 ms) instead, so a
+  default 60s `run_terminal_docker` deadline can't time out the turn.
 - `view`, `grep` and `glob` share the permission kind `read`, so enabling one without the
   others can't be told apart at the permission layer.
 - Changing `availableTools` or the `tools` list between turns regenerates the system
