@@ -1,5 +1,4 @@
 import {
-  CopilotSession,
   MessageOptions,
 } from './copilotSdk/boundary';
 import { NO_TURN_DEADLINE_MS, SessionWrapper, SessionListenerEntry } from './copilotSdk/sessionWrapper';
@@ -45,7 +44,7 @@ export async function runForcedToolTurnUntilTimeout<T>(
   toolName: string | string[],
   initialPrompt: string,
   opts: ForcedToolTurnUntilTimeoutOptions<T>
-): Promise<{ result: T; session: CopilotSession; lastAssistantText: string; toolCalled: boolean }> {
+): Promise<{ result: T; lastAssistantText: string; toolCalled: boolean }> {
   const timeoutMs = opts.timeoutMs ?? NO_TURN_DEADLINE_MS;
   const maxRetries = opts.maxRetries ?? 2;
   const responseRequirements = opts.responseRequirements ?? {};
@@ -178,5 +177,5 @@ export async function runForcedToolTurnUntilTimeout<T>(
     finalResult = (true as unknown) as T;
   }
 
-  return { result: finalResult as T, session: wrapper.session as CopilotSession, lastAssistantText, toolCalled };
+  return { result: finalResult as T, lastAssistantText, toolCalled };
 }

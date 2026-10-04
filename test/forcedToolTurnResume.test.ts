@@ -45,7 +45,7 @@ async function runSubmitFindingTurn(workDir: string, maxRetries: number): Promis
       maxRetries,
       getResult: () => result,
     });
-    await turn.session.disconnect();
+    await wrapper.disconnect();
     return turn.result;
   } finally {
     await client.stop();
