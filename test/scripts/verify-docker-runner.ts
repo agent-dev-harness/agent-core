@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     const { getExecCommand, initializeWorkspace, getGitSandbox } = await import('../../src/workspace');
     const { makeRunTerminalDockerHandler } = await import('../../src/execTool');
 
-    check('getExecCommand selects the Docker runner by default', getExecCommand() === execCommand, null);
+    check('getExecCommand returns the Docker runner', getExecCommand() === execCommand, null);
 
     const handler = makeRunTerminalDockerHandler();
 
@@ -80,6 +80,13 @@ async function main(): Promise<void> {
     fs.symlinkSync('/etc', path.join(workspace, 'escape-link'));
     const viaSymlink = await handler({ command: 'pwd -P', workingDir: 'escape-link' });
     check('rejects a workingDir that leaves the workspace through a symlink', viaSymlink.exitCode === 1 && /traversal/i.test(viaSymlink.stderr), viaSymlink);
+
+    const absolute = await handler({ command: 'pwd', workingDir: path.join(workspace, 'sub') });
+    check('accepts an absolute workingDir inside the workspace', absolute.exitCode === 0 && absolute.stdout.trim() === path.join(workspace, 'sub'), absolute);
+
+    fs.symlinkSync(path.join(workspace, 'sub'), path.join(workspace, 'inside-link'));
+    const insideLink = await handler({ command: 'pwd -P', workingDir: 'inside-link' });
+    check('allows a symlink that stays inside the workspace', insideLink.exitCode === 0 && insideLink.stdout.trim() === path.join(workspace, 'sub'), insideLink);
 
     const missing = await handler({ command: 'pwd', workingDir: 'does-not-exist' });
     check('reports a missing workingDir with exit 91', missing.exitCode === 91, missing);
@@ -114,6 +121,15 @@ async function main(): Promise<void> {
 
     const euros = await handler({ command: `perl -CS -e 'print "\\x{20AC}" x 30000'` });
     check('keeps multibyte characters split across pipe chunks', euros.stdout === '€'.repeat(30000), euros.stdout.length);
+
+    const script = await handler({ command: "cat <<'EOF'\nhello $HOME\nEOF\nfor i in 1 2; do\n  echo $i\ndone\nexit 7" });
+    check('keeps heredocs, multi-line syntax and the exit code', script.stdout === 'hello $HOME\n1\n2\n' && script.exitCode === 7, script);
+
+    const bigScript = await handler({ command: `: '${'x'.repeat(1_000_000)}'\necho big-ok` });
+    check('runs scripts larger than the kernel limit for a single argument', bigScript.stdout === 'big-ok\n', bigScript.stderr);
+
+    const counted = await handler({ command: 'seq 1 200000' });
+    check('truncation keeps the end of the output', counted.stdout.endsWith('200000\n') && counted.stdout.length <= 40_200, counted.stdout.length);
 
     const stdinReader = await handler({ command: 'cat\necho line2-ran' });
     check('a command reading stdin does not consume the next line', stdinReader.stdout === 'line2-ran\n', stdinReader);
@@ -165,6 +181,12 @@ async function main(): Promise<void> {
       processesRunning(containerName, 'sleep 38') === '',
       null,
     );
+
+    const callerOnly = await execCommand('sleep 0.2 && echo fine', AbortSignal.timeout(10_000));
+    check("a caller's signal alone is the only deadline", callerOnly.exitCode === 0 && callerOnly.stdout === 'fine\n', callerOnly);
+
+    const both = await execCommand('sleep 10 && echo done', AbortSignal.timeout(30_000), { timeoutMs: 1200 });
+    check("a caller's signal combines with timeoutMs", both.exitCode === 124 && both.stderr.includes('timed out after 1s'), both);
 
     const controller = new AbortController();
     const aborted = execCommand('sleep 32 & sleep 33; wait', controller.signal);

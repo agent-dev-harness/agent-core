@@ -7,7 +7,7 @@ Copilot SDK. It has four parts:
 |---|---|
 | **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
 | **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't. A timeout only frees the caller: the turn keeps running. |
-| **Workspace** | Docker and native runners, the `run_terminal_docker` tool (working directory, timeouts, output truncation), killing the whole process group on abort, and `GitSandbox`. |
+| **Workspace** | The Docker runner, the `run_terminal_docker` tool (working directory, timeouts, output truncation), killing the whole process group on abort, and `GitSandbox`. |
 | **Providers** | `ProviderRegistry` plus an HTTP proxy that routes models to OpenAI, Anthropic, OpenRouter, Gemini or a local server. |
 
 ## Goals
@@ -30,7 +30,7 @@ Out of scope: model and role configuration. The caller passes these in.
 - Node.js 22.12 or later. The package is ESM; CommonJS consumers load it with `require()`.
 - The GitHub Copilot CLI (`@github/copilot`), which `@github/copilot-sdk` launches to run
   sessions.
-- For Docker mode, a running container reachable as `CONTAINER_NAME` with the workspace
+- A running container reachable as `CONTAINER_NAME` with the workspace
   bind-mounted at the same absolute path as on the host (see `WORKSPACE_HOST_LOCATION`).
 
 ## Installing
@@ -54,16 +54,12 @@ gate on `main` and tags that commit `v<version>`.
 | Import | Contents |
 |---|---|
 | `@agent-dev-harness/agent-core` | `SessionWrapper`, `TurnToolInvocation`, `CopilotClient`, `defineTool` and the re-exported SDK types; `runForcedToolTurnUntilTimeout`; context helpers (`SlidingWindowCircularBuffer`, `enforceWorkingMemoryTruncation`, `cleanSubprocessLogs`, `clearCleanCache`); exec-tool helpers (`makeRunTerminalDockerHandler`, `parseExecToolArgs`, `buildExecOptions`, `truncateExecResult`); `ProviderRegistry` and its config types, `OPENROUTER_SESSION_ID_HEADER`; `PROVIDERS`, `isProviderType`, `ModelProviderConfig`, `RUN_TERMINAL_DOCKER_TOOL` |
-| `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `selectWorkspaceRunner`, `WorkspaceRunner`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
+| `@agent-dev-harness/agent-core/workspace` | `initializeWorkspace`, `getExecCommand`, `getGitSandbox`, `getWorkspaceRoot`, `getWorkspaceHostLocation`, `resolveWorkDir`, `TRAVERSAL_ERROR`, `GitSandbox`, `killProcessGroup` |
 | `@agent-dev-harness/agent-core/proxy` | `mountProviderProxyRoute`, `OPENROUTER_SESSION_ID_HEADER` (needs `express`, an optional peer dependency) |
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
-| `@agent-dev-harness/agent-core/testing` | `nativeRunner`, for test harnesses that drive the native runner directly |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
-`makeRunTerminalDockerHandler`. Commands run in Docker unless the caller picks the native
-runner, which runs them on the host: `initializeWorkspace({ runner: 'native' })` or
-`selectWorkspaceRunner('native')`. The runner can't change once the workspace is initialized.
-To subclass `GitSandbox` (for example, to add branch-per-task
+`makeRunTerminalDockerHandler`. Commands always run in the Docker container. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
 `SessionWrapper` passes each custom tool handler a `TurnToolInvocation`, whose `abortSignal`
@@ -85,7 +81,7 @@ configuration, is passed in by the caller.
 |---|---|---|
 | `VITEST` | provider registry | When `true` and `COPILOT_API_URL` is set, the registry routes every provider through it (otherwise only `openai`). |
 | `CONTAINER_NAME` | Docker runner | Name of the container commands run in. |
-| `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required in Docker mode. |
+| `WORKSPACE_HOST_LOCATION` | Docker runner | Absolute host path of the workspace, mounted at the same path in the container. Required. |
 | `COPILOT_API_URL` | provider registry | Base URL of the provider proxy. When unset, providers route to `http://localhost:$PORT`. |
 | `PORT` | provider registry | Port of the local provider proxy used when `COPILOT_API_URL` is unset (default `3000`). |
 | `OPENAI_API_KEY` | provider registry | Key for the `openai` provider (falls back to the key passed to `ProviderRegistry`). |
@@ -113,6 +109,7 @@ npm run verify:docker  # Docker runner against a real, throwaway container
 ```
 
 Integration tests replay recorded model traffic through `test/harness/CapiProxy.ts`
-(see `docs/copilot-sdk-record-replay.md`). No test needs Docker or network access: the
-Docker runner tests mock `child_process`; `npm run verify:docker` checks the runner
-against a real container and needs a running Docker daemon.
+(see `docs/copilot-sdk-record-replay.md`). `npm test` needs no Docker or network access:
+its Docker runner tests mock `child_process`. `npm run verify:docker` checks the runner
+against a real container and needs a running Docker daemon; `ci/check.sh` runs it, so the
+merge gate needs Docker locally and in CI.

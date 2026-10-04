@@ -37,7 +37,7 @@ export function resolveWorkDir(
 
 // Reading the whole script before running it means a command that reads stdin gets EOF
 // instead of the lines after it. --norc because bash -c sources bashrc when stdin is a
-// socket, which Node's stdin pipes are.
+// socket.
 export function bashScriptArgs(setup = ""): string[] {
   return ["--norc", "-c", `${setup}__run_terminal_script=$(cat); eval "$__run_terminal_script" </dev/null`];
 }
