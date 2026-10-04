@@ -245,6 +245,8 @@ async function main(): Promise<void> {
       overlapping,
     );
   } finally {
+    // The container runs as root, so a non-root host user (as in CI) can't delete what it wrote.
+    spawnSync('docker', ['exec', containerName, 'find', workspace, '-mindepth', '1', '-delete']);
     spawnSync('docker', ['rm', '-f', containerName]);
     fs.rmSync(workspace, { recursive: true, force: true });
   }
