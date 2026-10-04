@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { BASH_SCRIPT_ARGS, ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -87,6 +87,7 @@ export async function runDockerProcess(
   command: string,
   signal?: AbortSignal,
   workDir?: string,
+  outputLimit?: OutputLimit,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
     const workspaceRoot = getWorkspaceHostLocationOrThrow();
@@ -112,7 +113,7 @@ export async function runDockerProcess(
       workspaceRoot,
       getContainerName(),
       "bash",
-      "-s",
+      ...BASH_SCRIPT_ARGS,
     ], { detached: true });
 
     const CONTAINER_KILL_GRACE_MS = 1500;
@@ -138,8 +139,30 @@ export async function runDockerProcess(
 
         try {
           // The host can't signal processes inside the container's PID namespace, so kill them
-          // there by run marker. The kill shell carries the marker too and skips itself ($$).
-          const killCmd = `for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do [ "$pid" = "$$" ] && continue; kill -9 "$pid" || echo "kill-failed pid=$pid" >&2; done`;
+          // there by run marker, plus their descendants, which may have dropped the marker
+          // (env -i). The kill shell carries the marker too and skips itself ($$).
+          const killCmd = [
+            "declare -A parent doomed",
+            "for stat in /proc/[0-9]*/stat; do",
+            '  read -r line 2>/dev/null <"$stat" || continue',
+            "  fields=(${line##*) })",
+            "  pid=${stat#/proc/}",
+            '  [ -n "${fields[1]}" ] && parent[${pid%/stat}]=${fields[1]}',
+            "done",
+            'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do',
+            '  [ "$pid" = "$$" ] || doomed[$pid]=1',
+            "done",
+            "added=1",
+            'while [ -n "$added" ]; do',
+            "  added=",
+            '  for pid in "${!parent[@]}"; do',
+            '    if [ -z "${doomed[$pid]}" ] && [ -n "${doomed[${parent[$pid]}]}" ]; then doomed[$pid]=1; added=1; fi',
+            "  done",
+            "done",
+            'for pid in "${!doomed[@]}"; do',
+            '  kill -9 "$pid" 2>/dev/null || [ ! -e "/proc/$pid" ] || echo "kill-failed pid=$pid" >&2',
+            "done",
+          ].join("\n");
           const killProc = spawn("docker", [
             "exec",
             "-e",
@@ -201,24 +224,24 @@ export async function runDockerProcess(
       });
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdout = new OutputCollector(outputLimit);
+    const stderr = new OutputCollector(outputLimit);
 
     child.stdout.on("data", (data) => {
-      stdout += data.toString();
+      stdout.write(data);
     });
     child.stderr.on("data", (data) => {
-      stderr += data.toString();
+      stderr.write(data);
     });
 
     child.on("close", (code) => {
       if (signal) signal.removeEventListener("abort", onAbort);
       if (killInitiated) {
         void containerCleanupPromise.then(() => {
-          resolve({ stdout, stderr, exitCode: code });
+          resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
         });
       } else {
-        resolve({ stdout, stderr, exitCode: code });
+        resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
       }
     });
     if (child.stdin.writable) {

@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { killProcessGroup } from "./processGroup";
-import { ExecOptions, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { BASH_SCRIPT_ARGS, ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 const FIXED_WORKSPACE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "app-"));
 
@@ -17,6 +17,7 @@ export async function runNativeProcess(
   command: string,
   signal?: AbortSignal,
   workDir?: string,
+  outputLimit?: OutputLimit,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
     const workspaceRoot = getWorkspaceRoot();
@@ -30,7 +31,7 @@ export async function runNativeProcess(
       command = prependWorkDir(command, resolved.dir, workspaceRoot);
     }
 
-    const child = spawn("bash", ["-s"], {
+    const child = spawn("bash", [...BASH_SCRIPT_ARGS], {
       cwd: getWorkspaceRoot(),
       env: { PATH: FIXED_PATH },
       detached: true,
@@ -64,19 +65,19 @@ export async function runNativeProcess(
       });
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdout = new OutputCollector(outputLimit);
+    const stderr = new OutputCollector(outputLimit);
 
     child.stdout.on("data", (data) => {
-      stdout += data.toString();
+      stdout.write(data);
     });
     child.stderr.on("data", (data) => {
-      stderr += data.toString();
+      stderr.write(data);
     });
 
     child.on("close", (code) => {
        if (signal) signal.removeEventListener("abort", onAbort);
-       resolve({ stdout, stderr, exitCode: code });
+       resolve({ stdout: stdout.finish(), stderr: stderr.finish(), exitCode: code });
      });
 
     if (child.stdin.writable) {

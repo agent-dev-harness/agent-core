@@ -36,6 +36,11 @@ describe('parseExecToolArgs', () => {
     const opts = buildExecOptions(parsed, undefined);
     expect(opts.timeoutMs).toBe(DEFAULT_TIMEOUT_SECONDS * 1000);
   });
+
+  it('bounds the output the runner keeps to what the tool returns', () => {
+    const opts = buildExecOptions(parseExecToolArgs({ command: 'yes' }), undefined);
+    expect(opts.outputLimit?.maxChars).toBe(MAX_TOOL_OUTPUT_CHARS);
+  });
 });
 
 describe('resolveWorkDir', () => {

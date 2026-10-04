@@ -1,5 +1,6 @@
-import type { ExecOptions } from "./workspace";
+import type { ExecOptions, OutputLimit } from "./workspace";
 import { getExecCommand, getWorkspaceRoot, resolveWorkDir } from "./workspace";
+import { OutputCollector } from "./workspace/execHelpers";
 
 export const MIN_TIMEOUT_SECONDS = 30;
 export const MAX_TIMEOUT_SECONDS = 600;
@@ -11,6 +12,11 @@ export const DEFAULT_TIMEOUT_SECONDS = 60;
 export const MAX_TOOL_OUTPUT_CHARS = 40_000;
 const TRUNCATE_HEAD_CHARS = 26_000;
 const TRUNCATE_TAIL_CHARS = 13_000;
+const TOOL_OUTPUT_LIMIT: OutputLimit = {
+  maxChars: MAX_TOOL_OUTPUT_CHARS,
+  headChars: TRUNCATE_HEAD_CHARS,
+  tailChars: TRUNCATE_TAIL_CHARS,
+};
 
 export interface ParsedExecToolArgs {
   command: string;
@@ -34,13 +40,9 @@ export function parseExecToolArgs(args: unknown): ParsedExecToolArgs {
 }
 
 function truncateText(text: string): string {
-  if (text.length <= MAX_TOOL_OUTPUT_CHARS) return text;
-  const omitted = text.length - (TRUNCATE_HEAD_CHARS + TRUNCATE_TAIL_CHARS);
-  return (
-    text.slice(0, TRUNCATE_HEAD_CHARS) +
-    `\n[run_terminal_docker] Output truncated: omitted ${omitted} middle characters.\n` +
-    text.slice(text.length - TRUNCATE_TAIL_CHARS)
-  );
+  const collector = new OutputCollector(TOOL_OUTPUT_LIMIT);
+  collector.write(text);
+  return collector.finish();
 }
 
 export function truncateExecResult(result: { stdout: string; stderr: string; exitCode: number | null }): {
@@ -56,7 +58,7 @@ export function truncateExecResult(result: { stdout: string; stderr: string; exi
 }
 
 export function buildExecOptions(parsed: ParsedExecToolArgs, workDir: string | undefined): ExecOptions {
-  const opts: ExecOptions = { timeoutMs: parsed.timeoutMs };
+  const opts: ExecOptions = { timeoutMs: parsed.timeoutMs, outputLimit: TOOL_OUTPUT_LIMIT };
   if (workDir !== undefined) opts.workDir = workDir;
   return opts;
 }

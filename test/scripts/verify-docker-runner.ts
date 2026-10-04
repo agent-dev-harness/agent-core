@@ -101,6 +101,19 @@ async function main(): Promise<void> {
       { exitCode: big.exitCode, length: big.stdout.length },
     );
 
+    const endless = await handler({ command: 'yes | head -c 700M', timeoutSeconds: 120 });
+    check(
+      'survives output larger than the maximum string length',
+      endless.exitCode === 0 && endless.stdout.includes('Output truncated'),
+      { exitCode: endless.exitCode, length: endless.stdout.length },
+    );
+
+    const euros = await handler({ command: `perl -CS -e 'print "\\x{20AC}" x 30000'` });
+    check('keeps multibyte characters split across pipe chunks', euros.stdout === '€'.repeat(30000), euros.stdout.length);
+
+    const stdinReader = await handler({ command: 'cat\necho line2-ran' });
+    check('a command reading stdin does not consume the next line', stdinReader.stdout === 'line2-ran\n', stdinReader);
+
     const concurrentStart = Date.now();
     const [first, second] = await Promise.all([
       handler({ command: 'sleep 2; echo first' }),
@@ -134,6 +147,13 @@ async function main(): Promise<void> {
     const timedOut = await execCommand('sleep 31; echo late', undefined, { timeoutMs: 2000 });
     check('kills a command at its deadline with exit 124', timedOut.exitCode === 124 && Date.now() - startedAt < 15000, timedOut);
     check('leaves no process behind after a deadline kill', processesRunning(containerName, 'sleep 31') === '', null);
+
+    await execCommand('env -i /bin/sleep 35 & (exec -c sleep 36) & sleep 37', undefined, { timeoutMs: 2000 });
+    check(
+      'a deadline kill also reaches children that cleared their environment',
+      processesRunning(containerName, '/bin/sleep 35') === '' && processesRunning(containerName, 'sleep 36') === '',
+      null,
+    );
 
     const controller = new AbortController();
     const aborted = execCommand('sleep 32 & sleep 33; wait', controller.signal);
