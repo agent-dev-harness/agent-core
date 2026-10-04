@@ -38,23 +38,42 @@ export function resolveWorkDir(
 // Reading the whole script before running it means a command that reads stdin gets EOF
 // instead of the lines after it. --norc because bash -c sources bashrc when stdin is a
 // socket, which Node's stdin pipes are.
-export const BASH_SCRIPT_ARGS: readonly string[] = [
-  "--norc",
-  "-c",
-  '__run_terminal_script=$(cat); eval "$__run_terminal_script" </dev/null',
-];
+export function bashScriptArgs(setup = ""): string[] {
+  return ["--norc", "-c", `${setup}__run_terminal_script=$(cat); eval "$__run_terminal_script" </dev/null`];
+}
 
 export function shellQuotePath(p: string): string {
   return `'` + p.replace(/'/g, `'\\''`) + `'`;
 }
 
+// resolveWorkDir only checks the path text, so a symlink could still lead outside; this
+// checks the physical directory in the shell that runs the command.
 export function prependWorkDir(command: string, dir: string, workspaceRoot: string): string {
   if (dir === workspaceRoot) return command;
-  return `cd ${shellQuotePath(dir)} || exit 91\n${command}`;
+  return (
+    `cd ${shellQuotePath(dir)} || exit 91\n` +
+    `case "$(pwd -P)/" in "$(cd ${shellQuotePath(workspaceRoot)} && pwd -P)"/*) ;; ` +
+    `*) echo ${shellQuotePath(TRAVERSAL_ERROR)} >&2; exit 1 ;; esac\n` +
+    command
+  );
 }
+
+const DEFAULT_OUTPUT_LIMIT: OutputLimit = {
+  maxChars: 64 * 2 ** 20,
+  headChars: 32 * 2 ** 20,
+  tailChars: 32 * 2 ** 20,
+};
 
 function truncationNotice(omittedChars: number): string {
   return `\n[run_terminal_docker] Output truncated: omitted ${omittedChars} middle characters.\n`;
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 export class OutputCollector {
@@ -64,7 +83,7 @@ export class OutputCollector {
   private tailLength = 0;
   private totalLength = 0;
 
-  constructor(private readonly limit?: OutputLimit) {}
+  constructor(private readonly limit: OutputLimit = DEFAULT_OUTPUT_LIMIT) {}
 
   write(chunk: Buffer | string): void {
     this.append(typeof chunk === "string" ? chunk : this.decoder.write(chunk));
@@ -73,18 +92,17 @@ export class OutputCollector {
   finish(): string {
     this.append(this.decoder.end());
     const tail = this.tail.join("");
-    if (!this.limit || this.totalLength <= this.limit.maxChars) return this.head + tail;
-    const { headChars, tailChars } = this.limit;
-    return (
-      this.head +
-      truncationNotice(this.totalLength - headChars - tailChars) +
-      tail.slice(tail.length - tailChars)
-    );
+    if (this.totalLength <= this.limit.maxChars) return this.head + tail;
+    let head = this.head;
+    let kept = tail.slice(tail.length - this.limit.tailChars);
+    if (isHighSurrogate(head.charCodeAt(head.length - 1))) head = head.slice(0, -1);
+    if (isLowSurrogate(kept.charCodeAt(0))) kept = kept.slice(1);
+    return head + truncationNotice(this.totalLength - head.length - kept.length) + kept;
   }
 
   private append(text: string): void {
     this.totalLength += text.length;
-    if (this.limit && this.head.length < this.limit.headChars) {
+    if (this.head.length < this.limit.headChars) {
       const room = this.limit.headChars - this.head.length;
       this.head += text.slice(0, room);
       text = text.slice(room);
@@ -92,7 +110,6 @@ export class OutputCollector {
     if (!text) return;
     this.tail.push(text);
     this.tailLength += text.length;
-    if (!this.limit) return;
     const keep = this.limit.maxChars - this.limit.headChars;
     for (let oldest = this.tail[0]; oldest !== undefined && this.tailLength - oldest.length >= keep; oldest = this.tail[0]) {
       this.tail.shift();

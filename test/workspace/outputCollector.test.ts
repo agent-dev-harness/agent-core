@@ -40,6 +40,20 @@ describe('OutputCollector', () => {
     }
   });
 
+  it('does not cut a surrogate pair in half at either edge', () => {
+    const text = 'a'.repeat(25) + '😀' + 'm'.repeat(50) + '😀' + 'z'.repeat(12);
+    expect(collect(text, 5)).toBe(
+      'a'.repeat(25) + '\n[run_terminal_docker] Output truncated: omitted 54 middle characters.\n' + 'z'.repeat(12),
+    );
+  });
+
+  it('bounds memory even when no limit is passed', () => {
+    const chunk = Buffer.alloc(1 << 20, 'a');
+    const collector = new OutputCollector();
+    for (let i = 0; i < 600; i++) collector.write(chunk);
+    expect(collector.finish()).toContain('Output truncated');
+  });
+
   it('bounds memory for output larger than the maximum string length', () => {
     const chunk = Buffer.alloc(1 << 20, 'a');
     const collector = new OutputCollector(LIMIT);

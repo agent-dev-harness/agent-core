@@ -24,7 +24,9 @@ directory and process-level state.
   to `true`, which replaces any `onPermissionRequest` you pass. `SessionWrapper` always
   passes `false`.
 - `sendAndWait(prompt, timeout)` waits 60s when no timeout is given. When it times out
-  the call throws but the turn keeps running.
+  the call throws but the turn keeps running. `SessionWrapper.sendAndWait` and
+  `runForcedToolTurnUntilTimeout` pass `NO_TURN_DEADLINE_MS` (2^31-1 ms) instead, so a
+  default 60s `run_terminal_docker` deadline can't time out the turn.
 - `view`, `grep` and `glob` share the permission kind `read`, so enabling one without the
   others can't be told apart at the permission layer.
 - Changing `availableTools` or the `tools` list between turns regenerates the system
@@ -47,7 +49,8 @@ fires on teardown, so `parseExecToolArgs` must always return a `timeoutMs`, or a
 command is never killed.
 
 Both runners spawn detached and kill the whole process group. Docker mode also kills
-by an `EXEC_RUN_ID` marker inside the container, which the host can't reach through
-the group, along with the descendants of marked processes, which may have dropped the
-marker (`env -i`). A process that drops the marker and also leaves its parent before
-the kill escapes.
+inside the container, which the host can't reach through the group. It finds the run's
+processes by two markers: the `EXEC_RUN_ID` environment variable and an inherited
+descriptor (fd 987) on a deleted `/tmp/.exec-run-<id>` file, plus all their
+descendants. Only a process that clears its environment, closes its inherited
+descriptors and leaves its parent before the kill escapes.

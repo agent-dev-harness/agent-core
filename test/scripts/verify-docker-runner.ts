@@ -77,6 +77,10 @@ async function main(): Promise<void> {
     const traversal = await handler({ command: 'pwd', workingDir: '../..' });
     check('rejects a workingDir outside the workspace', traversal.exitCode === 1 && /traversal/i.test(traversal.stderr), traversal);
 
+    fs.symlinkSync('/etc', path.join(workspace, 'escape-link'));
+    const viaSymlink = await handler({ command: 'pwd -P', workingDir: 'escape-link' });
+    check('rejects a workingDir that leaves the workspace through a symlink', viaSymlink.exitCode === 1 && /traversal/i.test(viaSymlink.stderr), viaSymlink);
+
     const missing = await handler({ command: 'pwd', workingDir: 'does-not-exist' });
     check('reports a missing workingDir with exit 91', missing.exitCode === 91, missing);
 
@@ -152,6 +156,13 @@ async function main(): Promise<void> {
     check(
       'a deadline kill also reaches children that cleared their environment',
       processesRunning(containerName, '/bin/sleep 35') === '' && processesRunning(containerName, 'sleep 36') === '',
+      null,
+    );
+
+    await execCommand('( env -i setsid sleep 38 & ); sleep 39', undefined, { timeoutMs: 2000 });
+    check(
+      'a deadline kill also reaches a process that cleared its environment and detached',
+      processesRunning(containerName, 'sleep 38') === '',
       null,
     );
 

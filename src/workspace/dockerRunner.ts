@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "child_process";
 import * as crypto from "crypto";
 import { killProcessGroup } from "./processGroup";
-import { BASH_SCRIPT_ARGS, ExecOptions, OutputCollector, OutputLimit, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
+import { ExecOptions, OutputCollector, OutputLimit, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir } from "./execHelpers";
 
 // No default: a guessed path would hide a misconfigured mount instead of failing.
 let WORKSPACE_HOST_LOCATION = "";
@@ -20,6 +20,11 @@ function getWorkspaceHostLocationOrThrow(): string {
 }
 
 const EXEC_TIMEOUT_MS = 60_000;
+
+// A second run marker that survives env -i and reparenting: an inherited descriptor on a file
+// that is deleted at once. Only a process that also closes its inherited descriptors loses it.
+const RUN_MARKER_FD_SETUP =
+  '{ : >"/tmp/.exec-run-$EXEC_RUN_ID" && exec 987<"/tmp/.exec-run-$EXEC_RUN_ID"; rm -f "/tmp/.exec-run-$EXEC_RUN_ID"; } 2>/dev/null; ';
 
 let CONTAINER_NAME = "";
 
@@ -113,7 +118,7 @@ export async function runDockerProcess(
       workspaceRoot,
       getContainerName(),
       "bash",
-      ...BASH_SCRIPT_ARGS,
+      ...bashScriptArgs(RUN_MARKER_FD_SETUP),
     ], { detached: true });
 
     const CONTAINER_KILL_GRACE_MS = 1500;
@@ -139,8 +144,8 @@ export async function runDockerProcess(
 
         try {
           // The host can't signal processes inside the container's PID namespace, so kill them
-          // there by run marker, plus their descendants, which may have dropped the marker
-          // (env -i). The kill shell carries the marker too and skips itself ($$).
+          // there by run marker (environment or descriptor), plus their descendants, which may
+          // have dropped both. The kill shell carries the environment marker and skips itself ($$).
           const killCmd = [
             "declare -A parent doomed",
             "for stat in /proc/[0-9]*/stat; do",
@@ -149,7 +154,8 @@ export async function runDockerProcess(
             "  pid=${stat#/proc/}",
             '  [ -n "${fields[1]}" ] && parent[${pid%/stat}]=${fields[1]}',
             "done",
-            'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3); do',
+            'for pid in $(grep -sl "EXEC_RUN_ID=$EXEC_RUN_ID" /proc/[0-9]*/environ | cut -d/ -f3) \\',
+            '    $(find /proc/[0-9]*/fd -lname "/tmp/.exec-run-$EXEC_RUN_ID*" 2>/dev/null | cut -d/ -f3); do',
             '  [ "$pid" = "$$" ] || doomed[$pid]=1',
             "done",
             "added=1",

@@ -2,7 +2,7 @@ import {
   CopilotSession,
   MessageOptions,
 } from './copilotSdk/boundary';
-import { SessionWrapper, SessionListenerEntry } from './copilotSdk/sessionWrapper';
+import { NO_TURN_DEADLINE_MS, SessionWrapper, SessionListenerEntry } from './copilotSdk/sessionWrapper';
 
 export const LAST_MESSAGE_TRUNCATE_LENGTH = 2000;
 
@@ -39,10 +39,6 @@ function restrictToTargetTools(wrapper: SessionWrapper, turnAvailableTools: read
   wrapper.disableTools(...turnAvailableTools);
   wrapper.enableTools(...targetTools);
 }
-
-// The SDK waits only 60s when no timeout is given, and Node clamps any timer
-// delay above 2^31-1 ms to 1 ms, so this is the closest to "no deadline".
-const NO_TURN_DEADLINE_MS = 2 ** 31 - 1;
 
 export async function runForcedToolTurnUntilTimeout<T>(
   wrapper: SessionWrapper,
