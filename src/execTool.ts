@@ -2,7 +2,7 @@ import type { OutputLimit } from "./workspace";
 import { getWorkspaceRoot, resolveWorkDir } from "./workspace";
 import { OutputCollector, scaleOutputLimit, shareOutputBudget } from "./workspace/execHelpers";
 import type { DockerRun } from "./workspace/dockerRunner";
-import { getStartCommand } from "./workspace/workspace";
+import { getKillRuns, getStartCommand } from "./workspace/workspace";
 
 export const MIN_WAIT_SECONDS = 0;
 export const MAX_WAIT_SECONDS = 600;
@@ -116,13 +116,15 @@ interface TerminalEntry {
   exitCode: number | null | undefined;
 }
 
+// Every handler takes the invocation, so a tool can be dispatched by name; only run_terminal_docker uses it.
 export interface TerminalDockerHandlers {
   run_terminal_docker(args: unknown, invocation?: { abortSignal?: AbortSignal }): Promise<TerminalResult>;
-  read_terminal_docker(args: unknown): Promise<TerminalResult>;
-  write_terminal_docker(args: unknown): Promise<TerminalResult>;
-  stop_terminal_docker(args: unknown): Promise<TerminalResult>;
-  list_terminal_docker(args?: unknown): Promise<{ terminals: TerminalListing[] }>;
-  // Kills every command still running. abortSignal does this when it fires.
+  read_terminal_docker(args: unknown, invocation?: { abortSignal?: AbortSignal }): Promise<TerminalResult>;
+  write_terminal_docker(args: unknown, invocation?: { abortSignal?: AbortSignal }): Promise<TerminalResult>;
+  stop_terminal_docker(args: unknown, invocation?: { abortSignal?: AbortSignal }): Promise<TerminalResult>;
+  list_terminal_docker(args?: unknown, invocation?: { abortSignal?: AbortSignal }): Promise<{ terminals: TerminalListing[] }>;
+  // Kills every command still running, and whatever the session's finished commands left running
+  // (a server started with &, say). abortSignal does this when it fires.
   stopAll(): Promise<void>;
 }
 
@@ -135,13 +137,20 @@ export interface TerminalListing {
 }
 
 // One set of handlers per session: shellIds are only visible to the handlers that started them.
-// abortSignal is session-scoped; when it fires, every command still running is killed.
+// abortSignal is session-scoped; when it fires, every command still running is killed, along with
+// any process a finished command left behind.
 export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalDockerHandlers {
   const terminals = new Map<string, TerminalEntry>();
+  // Every run started since the last stopAll: a finished one can still have processes running.
+  const runIds = new Set<string>();
   let nextId = 1;
 
   const stopAll = async (): Promise<void> => {
-    await Promise.all([...terminals.values()].map((t) => t.run.kill()));
+    const running = [...terminals.values()].filter((t) => t.exitCode === undefined);
+    for (const t of running) if (t.run.runId) runIds.delete(t.run.runId);
+    const leftovers = [...runIds];
+    runIds.clear();
+    await Promise.all([...running.map((t) => t.run.kill()), getKillRuns()(leftovers)]);
   };
   abortSignal?.addEventListener("abort", () => void stopAll(), { once: true });
 
@@ -152,8 +161,8 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
     }
   };
 
-  const register = (command: string, run: DockerRun): TerminalEntry => {
-    const entry: TerminalEntry = { shellId: `shell-${nextId++}`, command, startedAt: Date.now(), run, exitCode: undefined };
+  const register = (command: string, run: DockerRun, startedAt: number): TerminalEntry => {
+    const entry: TerminalEntry = { shellId: `shell-${nextId++}`, command, startedAt, run, exitCode: undefined };
     void run.exited.then((code) => {
       entry.exitCode = code;
       forgetOldestExited();
@@ -165,7 +174,13 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
 
   const lookup = (args: unknown, tool: string): TerminalEntry | TerminalResult => {
     const record = asRecord(args);
-    const shellId = typeof record.shellId === "string" ? record.shellId : "";
+    if (record.shellId !== undefined && typeof record.shellId !== "string") {
+      return usageError(
+        `${tool}: 'shellId' must be a string like "shell-1", as run_terminal_docker returned it ` +
+          `(got ${typeof record.shellId} ${JSON.stringify(record.shellId)}).`,
+      );
+    }
+    const shellId = record.shellId ?? "";
     const entry = terminals.get(shellId);
     if (entry) return entry;
     const known = [...terminals.keys()];
@@ -206,14 +221,16 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       if (!resolved.ok) {
         return { stdout: "", stderr: resolved.error, exitCode: 1 };
       }
+      const startedAt = Date.now();
       const run = getStartCommand()(parsed.command, {
         workDir: resolved.dir,
         outputLimit: TOOL_OUTPUT_LIMIT,
         keepStdinOpen: parsed.mode === "async",
       });
+      if (run.runId) runIds.add(run.runId);
 
       if (parsed.mode === "async") {
-        const entry = register(parsed.command, run);
+        const entry = register(parsed.command, run, startedAt);
         return report(
           entry,
           `Started in the background. Use read_terminal_docker with shellId "${entry.shellId}" for its output and exit code, ` +
@@ -228,7 +245,7 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       if (outcome !== "waiting") {
         return { ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS), exitCode: await run.exited };
       }
-      const entry = register(parsed.command, run);
+      const entry = register(parsed.command, run, startedAt);
       return report(
         entry,
         `Still running after ${Math.round(parsed.initialWaitMs / 1000)}s; it keeps running in the background. ` +

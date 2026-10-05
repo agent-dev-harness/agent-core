@@ -251,12 +251,19 @@ async function main(): Promise<void> {
     const sessionTerminal = makeTerminalDockerHandlers(session.signal);
     await sessionTerminal.run_terminal_docker({ command: 'sleep 43', mode: 'async' });
     await sessionTerminal.run_terminal_docker({ command: 'sleep 44', initialWaitSeconds: 0 });
+    const leftBehind = await sessionTerminal.run_terminal_docker({ command: 'sleep 45 & nohup sleep 46 >/dev/null 2>&1 & echo started' });
+    const leftRunning = processesRunning(containerName, 'sleep 45') !== '' && processesRunning(containerName, 'sleep 46') !== '';
     session.abort();
     await new Promise((resolve) => setTimeout(resolve, 3000));
     check(
       'ending the session kills its background commands',
       processesRunning(containerName, 'sleep 43') === '' && processesRunning(containerName, 'sleep 44') === '',
       null,
+    );
+    check(
+      'ending the session kills what a finished command left running with &',
+      leftBehind.exitCode === 0 && leftRunning && processesRunning(containerName, 'sleep 45') === '' && processesRunning(containerName, 'sleep 46') === '',
+      { leftBehind, leftRunning },
     );
 
     fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');

@@ -42,6 +42,21 @@ function fakeClient(): {
   return { client, createCalls, resumeCalls, sessions };
 }
 
+// The next resumed session's sendAndWait waits until the returned function is called with a reply.
+function holdNextResumedTurn(client: CopilotClient): (reply?: unknown) => void {
+  let release!: (reply?: unknown) => void;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const resume = vi.mocked(client.resumeSession).getMockImplementation()!;
+  vi.mocked(client.resumeSession).mockImplementationOnce(async (sessionId, config) => {
+    const session = await resume(sessionId, config);
+    vi.mocked(session.sendAndWait).mockReturnValueOnce(held as ReturnType<CopilotSession['sendAndWait']>);
+    return session;
+  });
+  return release;
+}
+
 function shellRequest(): PermissionRequest {
   return { kind: 'shell' } as PermissionRequest;
 }
@@ -258,6 +273,63 @@ describe('SessionWrapper.abort and disconnect', () => {
     await wrapper.sendAndWait('turn two');
     expect(createCalls).toHaveLength(2);
     expect(resumeCalls).toHaveLength(0);
+  });
+
+  it('disconnect() during a turn aborts it, rejects its sendAndWait and fires the turn signal', async () => {
+    const { client, sessions } = fakeClient();
+    const tool = { name: 'slow', handler: vi.fn(async (_args: unknown, _invocation: unknown) => 'ok') };
+    const wrapper = new SessionWrapper(client, { custom: [tool] }).setModelName('claude-sonnet-4.5');
+    await wrapper.sendAndWait('turn one');
+    holdNextResumedTurn(client);
+    const turn = wrapper.sendAndWait('turn two');
+    await vi.waitFor(() => expect(sessions[1]?.sendAndWait).toHaveBeenCalled());
+    await wrapper._createConfig().tools?.[0]?.handler?.({}, { sessionId: 's', toolCallId: 'c', toolName: 'slow', arguments: {} });
+    const turnSignal = (tool.handler.mock.calls[0]?.[1] as { abortSignal: AbortSignal }).abortSignal;
+
+    await wrapper.disconnect();
+
+    await expect(turn).rejects.toThrow(/disconnect\(\) ended the session during this turn/);
+    expect(turnSignal.aborted).toBe(true);
+    expect(sessions[1]?.abort).toHaveBeenCalledTimes(1);
+    expect(sessions[1]?.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('disconnect() rejects turns queued behind the running one', async () => {
+    const { client, sessions, createCalls } = fakeClient();
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+    await wrapper.sendAndWait('turn one');
+    holdNextResumedTurn(client);
+    const running = wrapper.sendAndWait('turn two');
+    const queued = wrapper.sendAndWait('turn three');
+    await vi.waitFor(() => expect(sessions[1]?.sendAndWait).toHaveBeenCalled());
+
+    await wrapper.disconnect();
+
+    await expect(running).rejects.toThrow(/during this turn/);
+    await expect(queued).rejects.toThrow(/before this turn started/);
+    expect(createCalls).toHaveLength(1);
+  });
+
+  it('disconnect() while the session is being created disconnects it once it exists', async () => {
+    const { client, sessions } = fakeClient();
+    let finishCreate!: () => void;
+    const created = new Promise<void>((resolve) => {
+      finishCreate = resolve;
+    });
+    const create = vi.mocked(client.createSession).getMockImplementation()!;
+    vi.mocked(client.createSession).mockImplementationOnce(async (config) => {
+      await created;
+      return create(config);
+    });
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+    const turn = wrapper.sendAndWait('turn one');
+
+    await wrapper.disconnect();
+    finishCreate();
+
+    await expect(turn).rejects.toThrow(/during this turn/);
+    await vi.waitFor(() => expect(sessions[0]?.disconnect).toHaveBeenCalledTimes(1));
+    expect(sessions[0]?.sendAndWait).not.toHaveBeenCalled();
   });
 
   it('both are safe to call before any session exists', async () => {
@@ -547,6 +619,24 @@ describe('SessionWrapper: misc lifecycle errors', () => {
     expect(createCalls).toHaveLength(1);
   });
 
+  it('runs overlapping turns one after another, each getting its own reply', async () => {
+    const { client, sessions } = fakeClient();
+    const wrapper = new SessionWrapper(client).setModelName('claude-sonnet-4.5');
+    await wrapper.sendAndWait('turn one');
+    const finishA = holdNextResumedTurn(client);
+    const a = wrapper.sendAndWait('A');
+    const b = wrapper.sendAndWait('B');
+    await vi.waitFor(() => expect(sessions[1]?.sendAndWait).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sessions).toHaveLength(2);
+
+    finishA('reply A');
+    expect(await a).toBe('reply A');
+    await vi.waitFor(() => expect(sessions).toHaveLength(3));
+    expect(sessions[2]?.sendAndWait).toHaveBeenCalledWith(expect.stringContaining('B'), expect.any(Number));
+    await b;
+  });
+
   it('isToolEnabled reports enablement and rejects an unknown tool', () => {
     const wrapper = new SessionWrapper(undefined, { builtins: ['edit', 'view'] }).disableTools('view');
     expect(wrapper.isToolEnabled('edit')).toBe(true);
@@ -613,7 +703,7 @@ describe('SessionWrapper side-door surface', () => {
       'abort',
       'disconnect',
     ]);
-    const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement', '_assertKnownTools']);
+    const excludedFromCheck = new Set(['constructor', '_createConfig', '_setEnablement', '_assertKnownTools', '_runTurn', '_turn']);
 
     const actualMethods = Object.getOwnPropertyNames(SessionWrapper.prototype).filter(
       (name) => !excludedFromCheck.has(name)

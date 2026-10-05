@@ -53,6 +53,10 @@ export function getStartCommand() {
   return docker.startDockerProcess;
 }
 
+export function getKillRuns() {
+  return docker.killRunsInContainer;
+}
+
 export function getWorkspaceRoot(): string {
   return docker.getWorkspaceRoot();
 }

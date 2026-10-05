@@ -52,7 +52,8 @@ checked in `src/workspace/execHelpers.ts`. A missing directory exits 91. The too
 Copilot's bash tool: a call waits up to `initialWaitSeconds`, and a command still running then is
 left running in the background under a `shellId` (`read`/`write`/`stop`/`list_terminal_docker`),
 not killed. Background commands die when the session-scoped signal given to
-`makeTerminalDockerHandlers` fires; the per-turn `abortSignal` that `SessionWrapper` puts in each
+`makeTerminalDockerHandlers` fires, and so does anything a finished command left running (the
+handlers keep every run id and sweep them with `killRunsInContainer`); the per-turn `abortSignal` that `SessionWrapper` puts in each
 invocation (fired by the session's `abort` event) only kills a command still inside its initial
 wait. The SDK itself gives tool handlers no cancellation signal. `execCommand`, which `GitSandbox`
 uses, still kills at its deadline: exit 124 with a note on stderr.

@@ -9,6 +9,7 @@ import type {
   SessionConfig,
   Tool,
 } from '@github/copilot-sdk';
+import type { TurnToolInvocation } from './sessionWrapper';
 
 export type {
   CopilotSession,
@@ -32,17 +33,18 @@ export type {
   ToolInvocation,
 } from '@github/copilot-sdk';
 
+// SessionWrapper wraps every custom tool, so the handler gets a TurnToolInvocation.
 export function defineTool<T = unknown>(
   name: string,
   description: string,
   parameters: Record<string, unknown>,
-  handler: (args: T) => Promise<unknown>
+  handler: (args: T, invocation: TurnToolInvocation) => Promise<unknown>
 ): Tool<T> {
   return {
     name,
     description,
     parameters,
-    handler,
+    handler: handler as Tool<T>['handler'],
   };
 }
 

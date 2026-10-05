@@ -136,8 +136,6 @@ export class SessionWrapper {
 
   private _session: CopilotSession | undefined = undefined;
 
-  private _creatingSession: Promise<CopilotSession> | undefined = undefined;
-
   private _sessionModel: string | undefined = undefined;
 
   private _frozenSystemMessage: SessionConfig['systemMessage'] | undefined = undefined;
@@ -147,6 +145,16 @@ export class SessionWrapper {
   private _turnAbort = new AbortController();
 
   private _unsubscribeAbort: (() => void) | undefined = undefined;
+
+  // Turns run one at a time: a turn that resumes the session while another is running leaves the
+  // earlier sendAndWait listening on a session object that never reports idle.
+  private _currentTurn: Promise<unknown> | undefined = undefined;
+
+  // Ends the running turn's sendAndWait; disconnect() calls it, since a detached session sends no idle.
+  private _endTurn: ((error: Error) => void) | undefined = undefined;
+
+  // Bumped by disconnect(), so turns queued before it don't start on the next session.
+  private _generation = 0;
 
   constructor(
     private readonly _client?: CopilotClient,
@@ -190,16 +198,28 @@ export class SessionWrapper {
     await this._session?.abort();
   }
 
-  // The next sendAndWait creates a fresh session rather than resuming this one.
+  // The next sendAndWait creates a fresh session rather than resuming this one. A turn still
+  // running is aborted and its sendAndWait rejects, as do turns queued behind it.
   async disconnect(): Promise<void> {
     const session = this._session;
+    const endTurn = this._endTurn;
+    this._generation++;
+    this._endTurn = undefined;
     this._unsubscribeAbort?.();
     this._unsubscribeAbort = undefined;
     this._session = undefined;
     this._sessionModel = undefined;
     this._frozenSystemMessage = undefined;
     this._announcedSystemPrompt = undefined;
-    await session?.disconnect();
+    if (endTurn) {
+      this._turnAbort.abort();
+      endTurn(new Error('SessionWrapper.disconnect() ended the session during this turn.'));
+    }
+    try {
+      if (endTurn) await session?.abort();
+    } finally {
+      await session?.disconnect();
+    }
   }
 
   enableTools(...names: readonly string[]): this {
@@ -294,12 +314,52 @@ export class SessionWrapper {
     };
   }
 
+  // A call made while a turn is running waits for that turn to finish, then runs its own.
   async sendAndWait(
     prompt: string | MessageOptions,
     timeout?: number,
     listeners?: SessionListenerEntry[],
     onSessionId?: (sessionId: string) => void
   ): Promise<AssistantMessageEvent | undefined> {
+    const generation = this._generation;
+    while (this._currentTurn) {
+      await this._currentTurn.catch(() => undefined);
+    }
+    if (generation !== this._generation) {
+      throw new Error('SessionWrapper.disconnect() ended the session before this turn started.');
+    }
+    const turn = this._runTurn(prompt, timeout, listeners, onSessionId);
+    this._currentTurn = turn;
+    try {
+      return await turn;
+    } finally {
+      if (this._currentTurn === turn) this._currentTurn = undefined;
+    }
+  }
+
+  private async _runTurn(
+    prompt: string | MessageOptions,
+    timeout: number | undefined,
+    listeners: SessionListenerEntry[] | undefined,
+    onSessionId: ((sessionId: string) => void) | undefined
+  ): Promise<AssistantMessageEvent | undefined> {
+    const ended = new Promise<never>((_, reject) => {
+      this._endTurn = reject;
+    });
+    try {
+      return await Promise.race([this._turn(prompt, timeout, listeners, onSessionId), ended]);
+    } finally {
+      this._endTurn = undefined;
+    }
+  }
+
+  private async _turn(
+    prompt: string | MessageOptions,
+    timeout: number | undefined,
+    listeners: SessionListenerEntry[] | undefined,
+    onSessionId: ((sessionId: string) => void) | undefined
+  ): Promise<AssistantMessageEvent | undefined> {
+    const generation = this._generation;
     if (!this._client) {
       throw new Error('SessionWrapper.sendAndWait: no CopilotClient was supplied to this instance.');
     }
@@ -323,34 +383,36 @@ export class SessionWrapper {
       typeof prompt === 'string' ? `${notice}\n\n${prompt}` : { ...prompt, prompt: `${notice}\n\n${prompt.prompt}` };
 
     if (!this._session) {
-      // Concurrent first turns share one createSession call instead of each creating a session.
-      if (!this._creatingSession) {
-        const config = this._createConfig();
-        this._frozenSystemMessage = config.systemMessage;
-        this._sessionModel = config.model;
-        this._creatingSession = this._client
-          .createSession({
-            ...this._baseConfig,
-            ...config,
-            // Last, so neither spread above can disable it.
-            largeOutput: { enabled: true, maxSizeBytes: 51200 },
-          })
-          .finally(() => {
-            this._creatingSession = undefined;
-          });
+      const config = this._createConfig();
+      this._frozenSystemMessage = config.systemMessage;
+      this._sessionModel = config.model;
+      const created = await this._client.createSession({
+        ...this._baseConfig,
+        ...config,
+        // Last, so neither spread above can disable it.
+        largeOutput: { enabled: true, maxSizeBytes: 51200 },
+      });
+      if (generation !== this._generation) {
+        await created.disconnect();
+        throw new Error('SessionWrapper.disconnect() ended the session during this turn.');
       }
-      this._session = await this._creatingSession;
+      this._session = created;
     } else {
       // The SDK forgets custom tools and systemMessage on resume, and boundary.ts defaults
       // autoApproveAll to true, which would bypass _onPermissionRequest.
       const resumeConfig = this._createConfig();
-      this._session = await this._client.resumeSession(this._session.sessionId, {
+      const resumed = await this._client.resumeSession(this._session.sessionId, {
         onPermissionRequest: this._onPermissionRequest,
         autoApproveAll: false,
         tools: resumeConfig.tools,
         availableTools: resumeConfig.availableTools,
         systemMessage: this._frozenSystemMessage,
       });
+      if (generation !== this._generation) {
+        await resumed.disconnect();
+        throw new Error('SessionWrapper.disconnect() ended the session during this turn.');
+      }
+      this._session = resumed;
       if (modelName !== this._sessionModel) {
         await this._session.setModel(modelName);
         this._sessionModel = modelName;
