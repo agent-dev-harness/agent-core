@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { defineTool, makeTerminalDockerHandlers, TERMINAL_DOCKER_TOOLS } from '../src/index';
+
+// Registration needs an initialized workspace, which needs Docker; this test only checks the snippet.
+vi.mock('../src/workspace/workspace', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/workspace/workspace')>()),
+  isWorkspaceInitialized: () => true,
+}));
 
 // The README's registration snippet, verbatim: `npm run lint` typechecks it under strict mode.
 describe('README tool registration', () => {

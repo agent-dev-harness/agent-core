@@ -36,6 +36,10 @@ export function initializeWorkspace(options?: {
   return _initializing;
 }
 
+export function isWorkspaceInitialized(): boolean {
+  return _sandbox !== null;
+}
+
 export function getGitSandbox(): GitSandbox {
   if (!_sandbox) {
     throw new Error(

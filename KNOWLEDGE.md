@@ -36,6 +36,9 @@ The merge gate (`ci/check.sh`) runs it, so the gate needs a Docker daemon.
   `run_terminal_docker` call waiting out its default 60s can't time out the turn.
 - `session.send` forwards only `prompt`, `displayPrompt`, `attachments`, `mode`, `agentMode`
   and `requestHeaders` (SDK 1.0.13), so other fields such as `tool_choice` never reach the model.
+- When a custom tool handler throws, the CLI replaces the message with "Tool execution failed"
+  for the model and in `tool.execution_complete`'s `error.message`. A returned
+  `{ resultType: 'failure', textResultForLlm, error }` keeps its text in both.
 - `tool.execution_complete` carries the `toolCallId` and `success` but not the tool name; match
   it to the `tool.execution_start` with the same id.
 - `view`, `grep` and `glob` share the permission kind `read`, so enabling one without the

@@ -66,6 +66,8 @@ async function main(): Promise<void> {
 
     check('getExecCommand returns the Docker runner', getExecCommand() === execCommand, null);
 
+    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');
+    await initializeWorkspace();
     const terminal = makeTerminalDockerHandlers();
     const handler = terminal.run_terminal_docker;
 
@@ -266,8 +268,6 @@ async function main(): Promise<void> {
       { leftBehind, leftRunning },
     );
 
-    fs.writeFileSync(path.join(workspace, 'notes.txt'), 'baseline\n');
-    await initializeWorkspace();
     const sandbox = getGitSandbox();
     const baseline = await sandbox.getHeadShaAsync();
     check('initializeWorkspace creates the repo with a baseline commit, inside the container', /^[0-9a-f]{40}$/.test(baseline), baseline);
