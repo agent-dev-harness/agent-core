@@ -403,10 +403,22 @@ export class SessionWrapper {
       }
       this._session = created;
     } else {
-      // The SDK forgets custom tools and systemMessage on resume, and boundary.ts defaults
-      // autoApproveAll to true, which would bypass _onPermissionRequest.
+      // The SDK forgets on resume whatever isn't passed again: custom tools, systemMessage and
+      // the caller's handlers (hooks, onEvent, ...). boundary.ts also defaults autoApproveAll to
+      // true, which would bypass _onPermissionRequest. sessionId, cloud and agent (the agent to
+      // start with) only apply to create. A base config can still carry model at runtime (a
+      // spread ExecutionConfig does), and re-sending it would undo setModelName.
       const resumeConfig = this._createConfig();
+      const {
+        sessionId: _sessionId,
+        cloud: _cloud,
+        agent: _agent,
+        model: _model,
+        ...resumableBaseConfig
+      } = this._baseConfig as SessionWrapperBaseConfig & { model?: unknown };
       const resumed = await this._client.resumeSession(this._session.sessionId, {
+        ...resumableBaseConfig,
+        largeOutput: buildLargeOutput(this._baseConfig.largeOutput?.outputDirectory),
         onPermissionRequest: this._onPermissionRequest,
         autoApproveAll: false,
         tools: resumeConfig.tools,
