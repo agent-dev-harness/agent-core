@@ -17,7 +17,8 @@ Copilot SDK. It has four parts:
    have one allowed route, and lint checks enforce it.
 2. **No hangs:** every `run_terminal_docker` call returns by its initial wait. As with Copilot's
    bash tool, a command still running then keeps running in the background until it exits, is
-   stopped, or the session ends.
+   stopped, or the session ends. Ending the session also kills whatever a finished command left
+   running, such as a server started with `&`.
 3. **Agents stay in the workspace:** commands run in the sandbox, and paths can't reach
    outside it.
 4. **A stable prompt cache:** a resumed session sends the same tools and system prompt as
@@ -34,6 +35,8 @@ Out of scope: model and role configuration. The caller passes these in.
   sessions.
 - A running container reachable as `CONTAINER_NAME` with the workspace
   bind-mounted at the same absolute path as on the host (see `WORKSPACE_HOST_LOCATION`).
+  Start it with `docker run --init` (or another init as PID 1): killed commands are reparented
+  to PID 1, and without an init that reaps them they stay in `ps` as `<defunct>`.
 
 ## Installing
 
@@ -66,7 +69,10 @@ Commands always run in the Docker container. To subclass `GitSandbox` (for examp
 operations), pass `initializeWorkspace({ createSandbox })`.
 
 Use `wrapper.abort()` to stop the current turn and `wrapper.disconnect()` to end the
-session; the next `sendAndWait` after `disconnect()` starts a fresh session. The `.session`
+session; the next `sendAndWait` after `disconnect()` starts a fresh session. A turn still
+running when you call `disconnect()` is aborted and its `sendAndWait` rejects, as do turns
+waiting behind it. Turns on one wrapper run one at a time: a `sendAndWait` made while another is
+running waits for it, then runs its own turn and returns its own reply. The `.session`
 getter, which hands out the raw SDK session, is deprecated and will be removed.
 
 `run_terminal_docker` behaves like Copilot's bash tool. It waits up to `initialWaitSeconds`
@@ -77,7 +83,8 @@ exit code. `write_terminal_docker` sends input to a command started with `mode: 
 `stop_terminal_docker` kills one, and `list_terminal_docker` lists them. Register all five, with
 one `makeTerminalDockerHandlers(sessionSignal)` per session: the handlers share that session's
 commands, and when `sessionSignal` fires (or you call `stopAll()`) every command still running
-is killed.
+is killed, along with any process a finished command left running. `disconnect()` doesn't fire
+`sessionSignal`; abort it yourself when the session ends.
 
 ```ts
 const terminal = makeTerminalDockerHandlers(sessionAbort.signal);

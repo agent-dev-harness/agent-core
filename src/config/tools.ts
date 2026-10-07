@@ -2,7 +2,7 @@ export const RUN_TERMINAL_DOCKER_TOOL = {
   type: 'function',
   function: {
     name: 'run_terminal_docker',
-    description: 'Executes an arbitrary terminal command or script securely inside an isolated, containerized environment. Use this for all file creations, terminal commands, or testing operations. Each call runs a fresh bash process: working directory and environment variables do NOT persist between calls, so chain multi-step work with && inside one command. Use workingDir for directory context (relative paths resolve against the workspace root; absolute paths must stay inside it). The call waits up to initialWaitSeconds (default 60) for the command to finish. A command still running then is NOT killed: it keeps running in the background and the result has status "running" and a shellId, with the output so far. Use read_terminal_docker with that shellId to wait for more output and the exit code, and stop_terminal_docker to stop it. For a server, watcher or other long-lived process, use mode "async". Very large output is truncated: stdout and stderr together keep ~40k chars, from the start and end of each. Never delete the workspace\'s snapshots/ directory: it holds the session\'s checkpoints.',
+    description: 'Executes an arbitrary terminal command or script securely inside an isolated, containerized environment. Use this for all file creations, terminal commands, or testing operations. Each call runs a fresh bash process: working directory and environment variables do NOT persist between calls, so chain multi-step work with && inside one command. Use workingDir for directory context (relative paths resolve against the workspace root; absolute paths must stay inside it). The call waits up to initialWaitSeconds (default 60) for the command to finish. A command still running then is NOT killed: it keeps running in the background and the result has status "running" and a shellId, with the output so far. Use read_terminal_docker with that shellId to wait for more output and the exit code, and stop_terminal_docker to stop it. For a server, watcher or other long-lived process, use mode "async". Processes a command leaves running (e.g. started with &) are killed when the session ends. Very large output is truncated: stdout and stderr together keep ~40k chars, from the start and end of each. Never delete the workspace\'s snapshots/ directory: it holds the session\'s checkpoints.',
     parameters: {
       type: 'object',
       properties: {
@@ -14,7 +14,7 @@ export const RUN_TERMINAL_DOCKER_TOOL = {
       required: ['command']
     }
   }
-};
+} as const;
 
 export const READ_TERMINAL_DOCKER_TOOL = {
   type: 'function',
@@ -30,7 +30,7 @@ export const READ_TERMINAL_DOCKER_TOOL = {
       required: ['shellId']
     }
   }
-};
+} as const;
 
 export const WRITE_TERMINAL_DOCKER_TOOL = {
   type: 'function',
@@ -48,7 +48,7 @@ export const WRITE_TERMINAL_DOCKER_TOOL = {
       required: ['shellId']
     }
   }
-};
+} as const;
 
 export const STOP_TERMINAL_DOCKER_TOOL = {
   type: 'function',
@@ -63,7 +63,7 @@ export const STOP_TERMINAL_DOCKER_TOOL = {
       required: ['shellId']
     }
   }
-};
+} as const;
 
 export const LIST_TERMINAL_DOCKER_TOOL = {
   type: 'function',
@@ -75,7 +75,7 @@ export const LIST_TERMINAL_DOCKER_TOOL = {
       properties: {}
     }
   }
-};
+} as const;
 
 export const TERMINAL_DOCKER_TOOLS = [
   RUN_TERMINAL_DOCKER_TOOL,

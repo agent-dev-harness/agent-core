@@ -10,8 +10,9 @@ interface FakeRun extends DockerRun {
 }
 
 const started: { command: string; opts: StartOptions; run: FakeRun }[] = [];
+const sweeps: string[][] = [];
 
-function fakeRun(keepStdinOpen: boolean): FakeRun {
+function fakeRun(keepStdinOpen: boolean, runId: string): FakeRun {
   let out = '';
   let err = '';
   let resolveExit!: (code: number | null) => void;
@@ -28,6 +29,7 @@ function fakeRun(keepStdinOpen: boolean): FakeRun {
   };
   return {
     spawned: true,
+    runId,
     exited,
     takeOutput: () => {
       const taken = { stdout: out, stderr: err };
@@ -65,9 +67,12 @@ function fakeRun(keepStdinOpen: boolean): FakeRun {
 vi.mock('../../src/workspace/workspace', () => ({
   getWorkspaceRoot: () => '/ws',
   getStartCommand: () => (command: string, opts: StartOptions = {}) => {
-    const run = fakeRun(opts.keepStdinOpen === true);
+    const run = fakeRun(opts.keepStdinOpen === true, `run-${started.length + 1}`);
     started.push({ command, opts, run });
     return run;
+  },
+  getKillRuns: () => async (runIds: readonly string[]) => {
+    sweeps.push([...runIds]);
   },
 }));
 
@@ -82,6 +87,7 @@ function lastRun(): FakeRun {
 describe('run_terminal_docker', () => {
   beforeEach(() => {
     started.length = 0;
+    sweeps.length = 0;
   });
 
   it('returns the plain result when the command finishes within the initial wait', async () => {
@@ -190,6 +196,43 @@ describe('run_terminal_docker', () => {
     session.abort();
     await new Promise((r) => setTimeout(r, 0));
     expect(started.map((s) => s.run.killed)).toEqual([true, true]);
+  });
+
+  it('also kills what finished commands left running when the session signal fires', async () => {
+    const session = new AbortController();
+    const terminal = makeTerminalDockerHandlers(session.signal);
+    const finished = terminal.run_terminal_docker({ command: 'server & echo started' });
+    lastRun().exit(0);
+    await finished;
+    await terminal.run_terminal_docker({ command: 'serve', mode: 'async' });
+
+    session.abort();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sweeps).toEqual([['run-1']]);
+    expect(started[1]?.run.killed).toBe(true);
+  });
+
+  it('counts runningSeconds from when the command started, not from when it went to the background', async () => {
+    vi.useFakeTimers();
+    try {
+      const terminal = makeTerminalDockerHandlers();
+      const pending = terminal.run_terminal_docker({ command: 'build', initialWaitSeconds: 5 });
+      await vi.advanceTimersByTimeAsync(5000);
+      expectRunning(await pending);
+
+      expect((await terminal.list_terminal_docker()).terminals[0]?.runningSeconds).toBe(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says a shellId must be a string when given another type', async () => {
+    const terminal = makeTerminalDockerHandlers();
+    const result = await terminal.read_terminal_docker({ shellId: 3 });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toContain(`'shellId' must be a string like "shell-1"`);
+    expect(result.stderr).toContain('number 3');
   });
 
   it("kills the command when the turn's abort signal fires during the initial wait", async () => {
