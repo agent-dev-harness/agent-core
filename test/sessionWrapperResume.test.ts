@@ -91,4 +91,19 @@ describe('SessionWrapper resume against the real SDK', () => {
     expect(JSON.stringify(after).startsWith(JSON.stringify(before).slice(0, -1))).toBe(true);
     expect(after.length).toBeGreaterThan(before.length);
   });
+
+  // A spread ExecutionConfig carries `model`; setModelName must still decide each turn's model.
+  it("keeps setModelName's model on every resumed turn when the base config carries a model", { timeout: 30000 }, async () => {
+    const executionConfig = { model: 'model-a', providerType: 'openrouter', provider: model.provider() };
+    const wrapper = new SessionWrapper(client, { custom: [echo] }, { ...executionConfig }).setModelName('model-a');
+    model.push(() => ({ text: '1' }), () => ({ text: '2' }), () => ({ text: '3' }));
+
+    await wrapper.sendAndWait('first');
+    wrapper.setModelName('model-b');
+    await wrapper.sendAndWait('second');
+    await wrapper.sendAndWait('third');
+    await wrapper.disconnect();
+
+    expect(model.requests.map((r) => r.body.model)).toEqual(['model-a', 'model-b', 'model-b']);
+  });
 });

@@ -394,7 +394,7 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
     expect(resumeCalls[0]?.sessionId).toBe('session-0');
   });
 
-  it('resume re-sends the base config, except the create-only sessionId and cloud, under the wrapper-owned fields', async () => {
+  it('resume re-sends the base config, except the create-only sessionId, cloud and agent and the owned model, under the wrapper-owned fields', async () => {
     const { client, createCalls, resumeCalls } = fakeClient();
     const onEvent = () => {};
     const hooks = { onPreToolUse: async () => ({}) };
@@ -404,6 +404,8 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
       hooks,
       sessionId: 'caller-chosen-id',
       cloud: {},
+      agent: 'reviewer',
+      model: 'from-an-execution-config',
       autoApproveAll: true,
       largeOutput: { enabled: false, outputDirectory: '/ws/snapshots/tool-output' },
     } as SessionWrapperBaseConfig)

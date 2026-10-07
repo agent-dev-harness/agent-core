@@ -24,7 +24,9 @@ The merge gate (`ci/check.sh`) runs it, so the gate needs a Docker daemon.
   and every client-side handler (`hooks`, `onEvent`, `onUserInputRequest`, …) not passed
   again: it builds a new `CopilotSession` that registers only what the resume config has.
   `SessionWrapper` re-sends its base config on every resume for this reason, minus the
-  create-only `sessionId` and `cloud`.
+  create-only `sessionId`, `cloud` and `agent` (re-sending `agent` re-selects the start-up
+  agent), and minus `model`, which a spread `ExecutionConfig` carries and which would undo
+  `setModelName`.
 - `CopilotClient.createSession`/`resumeSession` in `boundary.ts` default `autoApproveAll`
   to `true`, which replaces any `onPermissionRequest` you pass. `SessionWrapper` always
   passes `false`.
