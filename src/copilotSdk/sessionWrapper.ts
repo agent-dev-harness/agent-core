@@ -403,10 +403,14 @@ export class SessionWrapper {
       }
       this._session = created;
     } else {
-      // The SDK forgets custom tools and systemMessage on resume, and boundary.ts defaults
-      // autoApproveAll to true, which would bypass _onPermissionRequest.
+      // The SDK forgets on resume whatever isn't passed again: custom tools, systemMessage and
+      // the caller's handlers (hooks, onEvent, ...). boundary.ts also defaults autoApproveAll to
+      // true, which would bypass _onPermissionRequest. sessionId and cloud only apply to create.
       const resumeConfig = this._createConfig();
+      const { sessionId: _sessionId, cloud: _cloud, ...resumableBaseConfig } = this._baseConfig;
       const resumed = await this._client.resumeSession(this._session.sessionId, {
+        ...resumableBaseConfig,
+        largeOutput: buildLargeOutput(this._baseConfig.largeOutput?.outputDirectory),
         onPermissionRequest: this._onPermissionRequest,
         autoApproveAll: false,
         tools: resumeConfig.tools,

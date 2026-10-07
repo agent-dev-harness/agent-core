@@ -20,7 +20,11 @@ The merge gate (`ci/check.sh`) runs it, so the gate needs a Docker daemon.
 
 - `resumeSession()` does not carry `systemMessage` over from the session it resumes.
   Leave it out and the SDK silently falls back to its default `copilot-cli` prompt.
-- `resumeSession()` also drops handler-backed custom tools unless `tools` is passed again.
+- `resumeSession()` also drops handler-backed custom tools unless `tools` is passed again,
+  and every client-side handler (`hooks`, `onEvent`, `onUserInputRequest`, …) not passed
+  again: it builds a new `CopilotSession` that registers only what the resume config has.
+  `SessionWrapper` re-sends its base config on every resume for this reason, minus the
+  create-only `sessionId` and `cloud`.
 - `CopilotClient.createSession`/`resumeSession` in `boundary.ts` default `autoApproveAll`
   to `true`, which replaces any `onPermissionRequest` you pass. `SessionWrapper` always
   passes `false`.

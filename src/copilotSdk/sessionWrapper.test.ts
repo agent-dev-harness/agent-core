@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SessionWrapper } from './sessionWrapper';
+import type { SessionWrapperBaseConfig } from './sessionWrapper';
 import type { CopilotClient, CopilotSession, PermissionRequest, SessionConfig } from './boundary';
 
 type FakeConfig = SessionConfig & { autoApproveAll?: boolean };
@@ -393,9 +394,19 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
     expect(resumeCalls[0]?.sessionId).toBe('session-0');
   });
 
-  it('resume sends onPermissionRequest, autoApproveAll: false, and the SDK-mandatory tools/availableTools/systemMessage -- no model or other base-config fields', async () => {
-    const { client, resumeCalls } = fakeClient();
-    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, { workingDirectory: '/tmp/work' })
+  it('resume re-sends the base config, except the create-only sessionId and cloud, under the wrapper-owned fields', async () => {
+    const { client, createCalls, resumeCalls } = fakeClient();
+    const onEvent = () => {};
+    const hooks = { onPreToolUse: async () => ({}) };
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, {
+      workingDirectory: '/tmp/work',
+      onEvent,
+      hooks,
+      sessionId: 'caller-chosen-id',
+      cloud: {},
+      autoApproveAll: true,
+      largeOutput: { enabled: false, outputDirectory: '/ws/snapshots/tool-output' },
+    } as SessionWrapperBaseConfig)
       .setSystemPrompt('be terse')
       .setModelName('claude-sonnet-4.5');
 
@@ -403,15 +414,22 @@ describe('SessionWrapper.sendAndWait: construction/resume lifecycle', () => {
     await wrapper.sendAndWait('turn two');
 
     const resumeConfig = resumeCalls[0]?.config;
-    expect(resumeConfig?.onPermissionRequest).toBeDefined();
-    expect(resumeConfig?.autoApproveAll).toBe(false);
     expect(Object.keys(resumeConfig ?? {}).sort()).toEqual([
       'autoApproveAll',
       'availableTools',
+      'hooks',
+      'largeOutput',
+      'onEvent',
       'onPermissionRequest',
       'systemMessage',
       'tools',
+      'workingDirectory',
     ]);
+    expect(resumeConfig?.onEvent).toBe(onEvent);
+    expect(resumeConfig?.hooks).toBe(hooks);
+    expect(resumeConfig?.autoApproveAll).toBe(false);
+    expect(resumeConfig?.onPermissionRequest).toBe(createCalls[0]?.onPermissionRequest);
+    expect(resumeConfig?.largeOutput).toEqual(createCalls[0]?.largeOutput);
   });
 
   it('the wire-level tools schema is byte-identical between create and every resume, even after enableTools/disableTools', async () => {
