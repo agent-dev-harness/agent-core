@@ -145,8 +145,10 @@ npm run build      # dist/: ESM bundles plus .d.ts
 npm run verify:docker  # Docker runner against a real, throwaway container
 ```
 
-Integration tests replay recorded model traffic through `test/harness/CapiProxy.ts`
-(see `docs/copilot-sdk-record-replay.md`). `npm test` needs no Docker or network access:
-its Docker runner tests mock `child_process`. `npm run verify:docker` checks the runner
-against a real container and needs a running Docker daemon; `ci/check.sh` runs it, so the
-merge gate needs Docker locally and in CI.
+Integration tests run the real SDK against a stand-in model. For new tests, use
+`test/harness/ScriptedModel.ts` (see `docs/scripted-model.md`): each model reply is a step in
+the test, and every request Copilot sent is kept for checking. Older tests replay YAML
+snapshots through `test/harness/CapiProxy.ts` (see `docs/copilot-sdk-record-replay.md`).
+`npm test` needs no Docker or network access: its Docker runner tests mock `child_process`.
+`npm run verify:docker` checks the runner against a real container and needs a running Docker
+daemon; `ci/check.sh` runs it, so the merge gate needs Docker locally and in CI.
