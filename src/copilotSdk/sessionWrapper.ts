@@ -107,6 +107,11 @@ function buildSystemPromptUpdateNotice(
   );
 }
 
+// Only the spill directory is the caller's: enabled and the threshold stay fixed.
+function buildLargeOutput(outputDirectory: string | undefined): NonNullable<SessionConfig['largeOutput']> {
+  return { enabled: true, maxSizeBytes: 51200, ...(outputDirectory !== undefined ? { outputDirectory } : {}) };
+}
+
 function withTurnSignal(tool: Tool, turnSignal: () => AbortSignal): Tool {
   const handler = tool.handler;
   if (!handler) return tool;
@@ -390,7 +395,7 @@ export class SessionWrapper {
         ...this._baseConfig,
         ...config,
         // Last, so neither spread above can disable it.
-        largeOutput: { enabled: true, maxSizeBytes: 51200 },
+        largeOutput: buildLargeOutput(this._baseConfig.largeOutput?.outputDirectory),
       });
       if (generation !== this._generation) {
         await created.disconnect();

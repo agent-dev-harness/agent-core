@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { CapiProxy } from './harness/CapiProxy';
 import { CopilotClient } from '../src/copilotSdk/boundary';
+import { SessionWrapper } from '../src/copilotSdk/sessionWrapper';
 
 const HUGE_PAYLOAD_SIZE = 200_000;
 const HUGE_PAYLOAD = 'X'.repeat(HUGE_PAYLOAD_SIZE);
@@ -87,5 +88,51 @@ describe('LargeToolOutputConfig with a custom (non-built-in) tool', () => {
       /Saved to:.*\.txt/,
       'expected truncated tool output to reference a temp file the model can page through'
     );
+  });
+
+  it("writes the spilled output to SessionWrapper's outputDirectory, which callers put inside the workspace", { timeout: 60000 }, async () => {
+    const proxy = new CapiProxy();
+    const proxyUrl = await proxy.start();
+    const tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'large-output-'));
+    const outputDirectory = path.join(tempWorkDir, 'snapshots', 'tool-output');
+
+    const snapshotPath = path.resolve(process.cwd(), 'test/snapshots/large_output/big_output.yaml');
+    await proxy.updateConfig({ filePath: snapshotPath, workDir: tempWorkDir });
+
+    const client = new CopilotClient({
+      workingDirectory: tempWorkDir,
+      logLevel: 'none',
+      useLoggedInUser: false,
+      env: { ...process.env, ...proxy.getProxyEnv(), COPILOT_API_URL: proxyUrl },
+    });
+    const bigOutputTool = {
+      name: 'big_output_tool',
+      description: 'Returns a large payload to test context-bloat handling.',
+      parameters: { type: 'object', properties: {} },
+      handler: async () => HUGE_PAYLOAD,
+    };
+    const wrapper = new SessionWrapper(client, { custom: [bigOutputTool] }, {
+      provider: { type: 'openai', baseUrl: proxyUrl, apiKey: 'test-api-key' },
+      largeOutput: { outputDirectory },
+    }).setModelName('claude-sonnet-4.5');
+
+    let spilledFiles: string[] = [];
+    try {
+      await client.start();
+      await wrapper.sendAndWait('Run the big output tool.');
+      spilledFiles = fs.readdirSync(outputDirectory);
+      await wrapper.disconnect();
+    } finally {
+      await client.stop();
+      await proxy.stop();
+      fs.rmSync(tempWorkDir, { recursive: true, force: true });
+    }
+
+    const toolMessage = proxy.requestHistory[1]?.messages.find((m: any) => m.role === 'tool');
+    const sentContent: string = typeof toolMessage?.content === 'string' ? toolMessage.content : JSON.stringify(toolMessage?.content);
+    const savedTo = sentContent.match(/Saved to: (\S+)/)?.[1];
+    assert.ok(savedTo, `expected the tool message to name the spill file, got: ${sentContent.slice(0, 300)}`);
+    assert.strictEqual(path.dirname(savedTo), outputDirectory);
+    assert.deepStrictEqual(spilledFiles, [path.basename(savedTo)]);
   });
 });

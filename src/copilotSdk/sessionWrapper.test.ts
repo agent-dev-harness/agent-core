@@ -688,6 +688,21 @@ describe('SessionWrapper.sendAndWait: largeOutput lockdown', () => {
 
     expect(createCalls[0]?.largeOutput).toEqual({ enabled: true, maxSizeBytes: 51200 });
   });
+
+  it("passes the caller's outputDirectory through, but not its enabled or maxSizeBytes", async () => {
+    const { client, createCalls } = fakeClient();
+    const wrapper = new SessionWrapper(client, { builtins: ['edit'] }, {
+      largeOutput: { enabled: false, maxSizeBytes: 10, outputDirectory: '/ws/snapshots/tool-output' },
+    }).setModelName('claude-sonnet-4.5');
+
+    await wrapper.sendAndWait('turn one');
+
+    expect(createCalls[0]?.largeOutput).toEqual({
+      enabled: true,
+      maxSizeBytes: 51200,
+      outputDirectory: '/ws/snapshots/tool-output',
+    });
+  });
 });
 
 describe('SessionWrapper side-door surface', () => {

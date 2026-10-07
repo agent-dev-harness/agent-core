@@ -98,6 +98,24 @@ fires when the turn is aborted (`wrapper.abort()`). `run_terminal_docker` kills 
 still inside its initial wait when that signal fires; one already in the background keeps
 running, which is why the example passes `invocation` through.
 
+A tool result larger than 50 KB (51,200 bytes of the result as the SDK serializes it) is
+saved to a file, and the model gets a short preview and the file's path instead. That can
+happen to `run_terminal_docker` output under its 40k-character cap: escape codes and non-ASCII
+text grow when serialized. The file goes to the OS temp directory, which the container can't
+see, so put it in the workspace with `largeOutput.outputDirectory`. Because the workspace has
+the same path on the host and in the container, the agent can then read the path with
+`run_terminal_docker` or with `view`/`grep`. `snapshots/` stays out of diffs and checkpoints,
+and the CLI deletes the files when the session disconnects. `SessionWrapper` takes only
+`outputDirectory` from `largeOutput`; the size limit and `enabled` are fixed.
+
+```ts
+import { getWorkspaceRoot } from "@agent-dev-harness/agent-core/workspace";
+
+const wrapper = new SessionWrapper(client, { custom: tools }, {
+  largeOutput: { outputDirectory: `${getWorkspaceRoot()}/snapshots/tool-output` },
+});
+```
+
 To group a session's OpenRouter requests, pass
 `registry.getExecutionConfig(model, { openRouterSessionId })`. The provider config then
 carries the id in a request header, and the proxy adds it to each request body as
