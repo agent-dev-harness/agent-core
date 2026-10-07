@@ -64,7 +64,10 @@ function fakeRun(keepStdinOpen: boolean, runId: string): FakeRun {
   };
 }
 
+const workspaceState = vi.hoisted(() => ({ initialized: true }));
+
 vi.mock('../../src/workspace/workspace', () => ({
+  isWorkspaceInitialized: () => workspaceState.initialized,
   getWorkspaceRoot: () => '/ws',
   getStartCommand: () => (command: string, opts: StartOptions = {}) => {
     const run = fakeRun(opts.keepStdinOpen === true, `run-${started.length + 1}`);
@@ -83,6 +86,18 @@ function lastRun(): FakeRun {
   if (!entry) throw new Error('no command was started');
   return entry.run;
 }
+
+describe('makeTerminalDockerHandlers', () => {
+  it('throws until the workspace is initialized', () => {
+    workspaceState.initialized = false;
+    try {
+      expect(() => makeTerminalDockerHandlers()).toThrow(/Call initializeWorkspace\(\) first/);
+    } finally {
+      workspaceState.initialized = true;
+    }
+    expect(() => makeTerminalDockerHandlers()).not.toThrow();
+  });
+});
 
 describe('run_terminal_docker', () => {
   beforeEach(() => {

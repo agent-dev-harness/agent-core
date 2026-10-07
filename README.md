@@ -64,7 +64,8 @@ gate on `main` and tags that commit `v<version>`.
 | `@agent-dev-harness/agent-core/types` | Type-only exports, safe to import from browser code |
 
 Call `initializeWorkspace()` once at startup before using the workspace functions or
-`makeTerminalDockerHandlers`. If it fails (for example, the container isn't up yet), call it again.
+`makeTerminalDockerHandlers`, which throws until it has succeeded. If it fails (for example, the
+container isn't up yet), call it again.
 Commands always run in the Docker container. To subclass `GitSandbox` (for example, to add branch-per-task
 operations), pass `initializeWorkspace({ createSandbox })`.
 
@@ -97,6 +98,12 @@ const tools = TERMINAL_DOCKER_TOOLS.map(({ function: f }) =>
 fires when the turn is aborted (`wrapper.abort()`). `run_terminal_docker` kills a command that is
 still inside its initial wait when that signal fires; one already in the background keeps
 running, which is why the example passes `invocation` through.
+
+When a call to a custom tool is wrong, return `{ resultType: 'failure', textResultForLlm, error }`
+with the reason instead of throwing. The CLI replaces a thrown error's message with "Tool execution
+failed", both for the model and in `tool.execution_complete`. That matters most for
+`runForcedToolTurnUntilTimeout`'s target tools: its retry prompt quotes the failure's message,
+so the model can only correct a call it was told the reason for.
 
 A tool result larger than 50 KB (51,200 bytes of the result as the SDK serializes it) is
 saved to a file, and the model gets a short preview and the file's path instead. That can

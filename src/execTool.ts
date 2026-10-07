@@ -2,7 +2,7 @@ import type { OutputLimit } from "./workspace";
 import { getWorkspaceRoot, resolveWorkDir } from "./workspace";
 import { OutputCollector, scaleOutputLimit, shareOutputBudget } from "./workspace/execHelpers";
 import type { DockerRun } from "./workspace/dockerRunner";
-import { getKillRuns, getStartCommand } from "./workspace/workspace";
+import { getKillRuns, getStartCommand, isWorkspaceInitialized } from "./workspace/workspace";
 
 export const MIN_WAIT_SECONDS = 0;
 export const MAX_WAIT_SECONDS = 600;
@@ -140,6 +140,14 @@ export interface TerminalListing {
 // abortSignal is session-scoped; when it fires, every command still running is killed, along with
 // any process a finished command left behind.
 export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalDockerHandlers {
+  // A setup error thrown inside a tool call reaches neither the caller nor the model (the CLI
+  // replaces its message), and once initializeWorkspace() has succeeded none can be thrown.
+  if (!isWorkspaceInitialized()) {
+    throw new Error(
+      "makeTerminalDockerHandlers: the workspace isn't initialized. Call initializeWorkspace() first, " +
+        "and again if it fails (for example, when the container isn't up yet).",
+    );
+  }
   const terminals = new Map<string, TerminalEntry>();
   // Every run started since the last stopAll: a finished one can still have processes running.
   const runIds = new Set<string>();
