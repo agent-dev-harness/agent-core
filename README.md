@@ -31,8 +31,8 @@ Out of scope: model and role configuration. The caller passes these in.
 ## Requirements
 
 - Node.js 22.12 or later. The package is ESM; CommonJS consumers load it with `require()`.
-- The GitHub Copilot CLI (`@github/copilot`), which `@github/copilot-sdk` launches to run
-  sessions.
+- No separate Copilot CLI: `@github/copilot-sdk` brings its own runtime as a platform package
+  (for example `@github/copilot-sdk-linux-x64`), which npm installs with it.
 - A running container reachable as `CONTAINER_NAME` with the workspace
   bind-mounted at the same absolute path as on the host (see `WORKSPACE_HOST_LOCATION`).
   Start it with `docker run --init` (or another init as PID 1): killed commands are reparented

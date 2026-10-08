@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from "child_process";
+import type { SpawnSyncReturns } from "child_process";
 import * as crypto from "crypto";
+import * as fs from "fs";
 import * as path from "path";
 import { killProcessGroup } from "./processGroup";
 import { ExecOptions, OutputLimit, OutputWindow, bashScriptArgs, execWithDefaults, prependWorkDir, resolveWorkDir, shareOutputBudget } from "./execHelpers";
@@ -53,15 +55,34 @@ let workspaceMountVerified = false;
 
 const VERIFY_MOUNT_TIMEOUT_MS = 5_000;
 
+// Exit code of the mount probe when the directory exists in the container but lacks the marker
+// the host just wrote, so it isn't the host's directory.
+const NOT_THE_HOST_DIRECTORY = 3;
+
 function verifyWorkspaceMount(): void {
   if (workspaceMountVerified) return;
   const location = getWorkspaceHostLocationOrThrow();
   const containerName = getContainerName();
-  const result = spawnSync("docker", ["exec", containerName, "test", "-d", location], {
-    timeout: VERIFY_MOUNT_TIMEOUT_MS,
-    killSignal: "SIGKILL",
-    encoding: "utf-8",
-  });
+  // A directory that merely exists in the container at that path would pass a plain test -d.
+  const marker = path.join(location, `.agent-core-mount-check-${crypto.randomUUID()}`);
+  try {
+    fs.writeFileSync(marker, "");
+  } catch (e) {
+    throw new Error(
+      `Could not write to WORKSPACE_HOST_LOCATION ("${location}") on the host to verify its mount: ` +
+        `${(e as Error).message}. It must be an existing, writable directory on the host.`,
+    );
+  }
+  let result: SpawnSyncReturns<string>;
+  try {
+    result = spawnSync(
+      "docker",
+      ["exec", containerName, "sh", "-c", `test -d "$1" || exit 1; test -f "$2" || exit ${NOT_THE_HOST_DIRECTORY}`, "mount-check", location, marker],
+      { timeout: VERIFY_MOUNT_TIMEOUT_MS, killSignal: "SIGKILL", encoding: "utf-8" },
+    );
+  } finally {
+    fs.rmSync(marker, { force: true });
+  }
   if (result.signal || (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
     throw new Error(
       `Timed out after ${VERIFY_MOUNT_TIMEOUT_MS}ms verifying WORKSPACE_HOST_LOCATION ("${location}") inside ` +
@@ -83,6 +104,13 @@ function verifyWorkspaceMount(): void {
         `Could not verify WORKSPACE_HOST_LOCATION inside container "${containerName}": docker exec failed before ` +
           `it could check the path (${stderr || `exit code ${result.status}`}). Ensure the container is running ` +
           "before executing commands.",
+      );
+    }
+    if (result.status === NOT_THE_HOST_DIRECTORY) {
+      throw new Error(
+        `WORKSPACE_HOST_LOCATION ("${location}") exists inside container "${containerName}" but is not the host's ` +
+          "directory: a file written there on the host doesn't show up in the container. Bind-mount the host " +
+          `directory at the same path (docker run -v "${location}:${location}").`,
       );
     }
     throw new Error(

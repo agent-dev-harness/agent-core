@@ -155,12 +155,22 @@ async function main(): Promise<void> {
       { first, second, elapsedMs: Date.now() - concurrentStart },
     );
 
-    const unmounted = probeInChild({ CONTAINER_NAME: containerName, WORKSPACE_HOST_LOCATION: '/not/mounted/here' });
+    const unmountedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-docker-unmounted-'));
+    const unmounted = probeInChild({ CONTAINER_NAME: containerName, WORKSPACE_HOST_LOCATION: unmountedDir });
     check(
       'refuses to run when the workspace path is not mounted in the container',
       unmounted.includes('REJECTED') && unmounted.includes('does not exist inside container'),
       unmounted,
     );
+
+    docker('exec', containerName, 'mkdir', '-p', unmountedDir);
+    const lookalike = probeInChild({ CONTAINER_NAME: containerName, WORKSPACE_HOST_LOCATION: unmountedDir });
+    check(
+      "refuses a path that exists in the container but isn't the host's directory",
+      lookalike.includes('REJECTED') && lookalike.includes("is not the host's directory") && fs.readdirSync(unmountedDir).length === 0,
+      lookalike,
+    );
+    fs.rmSync(unmountedDir, { recursive: true, force: true });
 
     const noContainer = probeInChild({ CONTAINER_NAME: `${containerName}-missing`, WORKSPACE_HOST_LOCATION: workspace });
     check(

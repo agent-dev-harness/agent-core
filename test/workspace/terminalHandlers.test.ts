@@ -256,8 +256,19 @@ describe('run_terminal_docker', () => {
     const pending = terminal.run_terminal_docker({ command: 'sleep 100' }, { abortSignal: turn.signal });
     turn.abort();
 
-    expect(await pending).toMatchObject({ exitCode: null });
+    expect(await pending).toMatchObject({ exitCode: null, note: 'Killed: the turn was aborted before the command finished.' });
     expect(lastRun().killed).toBe(true);
+  });
+
+  it('says the command was killed because the session ended', async () => {
+    const session = new AbortController();
+    const terminal = makeTerminalDockerHandlers(session.signal);
+    session.abort();
+
+    expect(await terminal.run_terminal_docker({ command: 'echo late' })).toMatchObject({
+      exitCode: null,
+      note: 'Killed: the session ended before the command finished.',
+    });
   });
 
   it('does not kill a background command when a later turn is aborted', async () => {

@@ -103,6 +103,12 @@ export function mountProviderProxyRoute(app: Express, writeLog: (msg: string) =>
         res.end('Provider proxy error: ' + err.message);
       });
 
+      // A client that disconnects before the reply ends (the CLI does on wrapper.abort()) would
+      // otherwise leave OpenRouter generating, and billing for, a reply nobody reads.
+      res.on('close', () => {
+        if (!res.writableFinished) proxyReq.destroy();
+      });
+
       proxyReq.write(modifiedBody);
       proxyReq.end();
     });

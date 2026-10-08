@@ -1,4 +1,7 @@
-import { assert, describe, it, vi, beforeEach } from "vitest";
+import { assert, describe, it, vi, beforeEach, afterAll } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { execCommand, runDockerProcess } from "../../src/workspace/dockerRunner";
 import { TRAVERSAL_ERROR } from "../../src/workspace/execHelpers";
 import * as cp from "child_process";
@@ -13,7 +16,8 @@ vi.mock("crypto", () => ({
   randomUUID: vi.fn(),
 }));
 
-const WS_ROOT = "/workspace/applet_workspace";
+// A real directory: the mount check writes a marker file in it on the host.
+const WS_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "exec-workdir-")));
 
 function createMockChild(pid: number) {
   const listeners: Record<string, Array<(...args: any[]) => void>> = {};
@@ -54,6 +58,10 @@ function createMockChild(pid: number) {
 }
 
 describe("docker runner workingDir handling", () => {
+  afterAll(() => {
+    fs.rmSync(WS_ROOT, { recursive: true, force: true });
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.CONTAINER_NAME = "test-container";

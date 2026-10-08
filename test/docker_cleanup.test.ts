@@ -1,7 +1,13 @@
-import { assert, describe, it, vi, beforeEach } from "vitest";
+import { assert, describe, it, vi, beforeEach, afterAll } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { runDockerProcess } from "../src/workspace/dockerRunner";
 import * as cp from "child_process";
 import * as crypto from "crypto";
+
+// The mount check writes a marker file here on the host.
+const hostWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "docker-cleanup-"));
 
 vi.mock("child_process", () => ({
   spawn: vi.fn(),
@@ -16,8 +22,12 @@ describe("Docker Cleanup & Orphan Handling", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.CONTAINER_NAME = "test-container";
-    process.env.WORKSPACE_HOST_LOCATION = "/workspace/applet_workspace";
+    process.env.WORKSPACE_HOST_LOCATION = hostWorkspace;
     vi.mocked(cp.spawnSync).mockReturnValue({ status: 0, error: undefined } as any);
+  });
+
+  afterAll(() => {
+    fs.rmSync(hostWorkspace, { recursive: true, force: true });
   });
 
   it("should spawn a container-side kill process on abort", async () => {
