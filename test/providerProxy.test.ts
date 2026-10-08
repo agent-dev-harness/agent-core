@@ -123,12 +123,31 @@ describe('ProviderRegistry routing', () => {
     expect(registry.getProviderType('gpt-5')).toBe('openrouter');
   });
 
-  it('passes a model missing from tierModels through unchanged instead of swapping in tierModels[0]', () => {
-    const registry = new ProviderRegistry('key', { tierModels: ['anthropic/claude-sonnet-4', 'openai/gpt-5'], roleModels: [], allConfigs: [] });
-    expect(registry.getMappedModel('o3')).toBe('o3');
-    expect(registry.getMappedModel('gpt-5-mini')).toBe('gpt-5-mini');
-    expect(registry.getExecutionConfig('claude-opus-4')).toMatchObject({ providerType: 'openrouter', model: 'claude-opus-4' });
-    expect(registry.getMappedModel('gpt-5')).toBe('openai/gpt-5');
+  it('sends the model as given, never swapping in a configured name it contains or is contained in', () => {
+    const registry = new ProviderRegistry('key', {
+      tierModels: ['gpt-4o', 'claude-sonnet-4-5', 'openai/gpt-5'],
+      roleModels: [],
+      allConfigs: [
+        { model: 'gpt-4o', provider: 'copilot-native' },
+        { model: 'claude-sonnet-4-5', provider: 'openrouter' },
+      ],
+    });
+    for (const asked of ['gpt-4o-mini', 'gpt-4', 'claude-sonnet-4', 'claude-sonnet-4-5-thinking', 'gpt-5', 'o3']) {
+      expect(registry.getExecutionConfig(asked)).toMatchObject({ model: asked, providerType: 'openrouter' });
+    }
+    expect(registry.getExecutionConfig('gpt-4o')).toMatchObject({ model: 'gpt-4o', providerType: 'copilot-native' });
+  });
+
+  it('checks model names at the type level when the registry is given a model type', () => {
+    type Model = 'gpt-4o' | 'openai/gpt-5';
+    const registry = new ProviderRegistry<Model>('key', {
+      tierModels: ['openai/gpt-5'],
+      roleModels: [],
+      allConfigs: [{ model: 'gpt-4o', provider: 'copilot-native' }],
+    });
+    expect(registry.getExecutionConfig('openai/gpt-5').model).toBe('openai/gpt-5');
+    // @ts-expect-error -- 'gpt-4o-mini' is not one of the registry's models.
+    expect(registry.getExecutionConfig('gpt-4o-mini').model).toBe('gpt-4o-mini');
   });
 
   it('keeps a configured copilot-native model on the native path', () => {
