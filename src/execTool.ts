@@ -249,8 +249,17 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       const signals = [abortSignal, invocation?.abortSignal].filter((s): s is AbortSignal => s !== undefined);
       const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
       const outcome = await waitForExit(run, parsed.initialWaitMs, signal);
-      if (outcome === "aborted") await run.kill();
-      if (outcome !== "waiting") {
+      if (outcome === "aborted") {
+        await run.kill();
+        return {
+          ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS),
+          exitCode: await run.exited,
+          note: abortSignal?.aborted
+            ? "Killed: the session ended before the command finished."
+            : "Killed: the turn was aborted before the command finished.",
+        };
+      }
+      if (outcome === "exited") {
         return { ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS), exitCode: await run.exited };
       }
       const entry = register(parsed.command, run, startedAt);
