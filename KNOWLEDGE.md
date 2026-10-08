@@ -64,8 +64,9 @@ not killed. Background commands die when the session-scoped signal given to
 `makeTerminalDockerHandlers` fires, and so does anything a finished command left running (the
 handlers keep every run id and sweep them with `killRunsInContainer`); the per-turn `abortSignal` that `SessionWrapper` puts in each
 invocation (fired by the session's `abort` event) only kills a command still inside its initial
-wait. The SDK itself gives tool handlers no cancellation signal. `execCommand`, which `GitSandbox`
-uses, still kills at its deadline: exit 124 with a note on stderr.
+wait. The SDK's own `invocation.signal` (SDK 1.0.13) doesn't replace it: it fires when the
+session object disconnects, or after the handler has returned, but not when the turn is aborted.
+`execCommand`, which `GitSandbox` uses, still kills at its deadline: exit 124 with a note on stderr.
 
 The script reaches the container on `docker exec`'s stdin, ended by a NUL. Whatever follows the
 NUL is the command's stdin: nothing in sync mode, so it reads end-of-file, or what
