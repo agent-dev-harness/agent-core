@@ -44,7 +44,7 @@ The package isn't published to a registry. Install it from GitHub, pinned to a r
 or a commit:
 
 ```bash
-npm install github:agent-dev-harness/agent-core#v0.6.0
+npm install github:agent-dev-harness/agent-core#v0.7.0
 ```
 
 npm builds `dist/` during the install (the `prepare` script), which takes about 40 seconds.
