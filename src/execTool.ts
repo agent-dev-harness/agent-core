@@ -202,13 +202,15 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
   };
 
   // Reports output since the last report; once the exit has been reported the terminal is dropped.
+  // Results put stdout and stderr last, so a result too large for the model, which then sees only
+  // its first 500 characters, still shows how the command ended.
   const report = (entry: TerminalEntry, note?: string): TerminalResult => {
     const output = entry.run.takeOutput(MAX_TOOL_OUTPUT_CHARS);
     if (entry.exitCode === undefined) {
-      return { ...output, exitCode: null, shellId: entry.shellId, status: "running", ...(note ? { note } : {}) };
+      return { exitCode: null, shellId: entry.shellId, status: "running", ...(note ? { note } : {}), ...output };
     }
     terminals.delete(entry.shellId);
-    return { ...output, exitCode: entry.exitCode, shellId: entry.shellId, status: "exited", ...(note ? { note } : {}) };
+    return { exitCode: entry.exitCode, shellId: entry.shellId, status: "exited", ...(note ? { note } : {}), ...output };
   };
 
   const settle = async (entry: TerminalEntry, outcome: WaitOutcome): Promise<void> => {
@@ -252,15 +254,15 @@ export function makeTerminalDockerHandlers(abortSignal?: AbortSignal): TerminalD
       if (outcome === "aborted") {
         await run.kill();
         return {
-          ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS),
           exitCode: await run.exited,
           note: abortSignal?.aborted
             ? "Killed: the session ended before the command finished."
             : "Killed: the turn was aborted before the command finished.",
+          ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS),
         };
       }
       if (outcome === "exited") {
-        return { ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS), exitCode: await run.exited };
+        return { exitCode: await run.exited, ...run.takeOutput(MAX_TOOL_OUTPUT_CHARS) };
       }
       const entry = register(parsed.command, run, startedAt);
       return report(

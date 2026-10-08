@@ -114,6 +114,21 @@ describe('run_terminal_docker', () => {
     expect(started[0]?.opts.keepStdinOpen).toBe(false);
   });
 
+  // The SDK replaces a large result with a 500-character preview of its JSON.
+  it('puts the exit code before the output, so a large result still shows it in the first 500 characters', async () => {
+    const terminal = makeTerminalDockerHandlers();
+    const finished = terminal.run_terminal_docker({ command: 'npm test' });
+    lastRun().emit('ok\n'.repeat(10_000), 'FAIL\n');
+    lastRun().exit(1);
+    expect(JSON.stringify(await finished).slice(0, 500)).toContain('"exitCode":1');
+
+    const background = await terminal.run_terminal_docker({ command: 'build', initialWaitSeconds: 0 });
+    lastRun().emit('step\n'.repeat(10_000));
+    lastRun().exit(2);
+    const read = await terminal.read_terminal_docker({ shellId: background.shellId });
+    expect(JSON.stringify(read).slice(0, 500)).toMatch(/"exitCode":2.*"status":"exited"/);
+  });
+
   it('leaves a command running past the initial wait in the background instead of killing it', async () => {
     const terminal = makeTerminalDockerHandlers();
     const pending = terminal.run_terminal_docker({ command: 'npm run build', initialWaitSeconds: 0 });
