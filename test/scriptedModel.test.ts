@@ -25,11 +25,11 @@ describe('ScriptedModel drives a real SDK session', () => {
   });
 
   it('shows each step the request Copilot sent, and returns the scripted replies', { timeout: 30000 }, async () => {
-    const echo = defineTool(
+    const echo = defineTool<{ text: string }>(
       'echo',
       'Echoes its input.',
       { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-      async (args) => `echoed: ${(args as { text: string }).text}`,
+      async ({ text }) => `echoed: ${text}`,
     );
     const wrapper = new SessionWrapper(client, { custom: [echo] }, { provider: model.provider() })
       .setModelName('scripted')
