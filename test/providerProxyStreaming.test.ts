@@ -4,15 +4,20 @@ import http from 'node:http';
 import type { Server } from 'node:http';
 import { PassThrough, Writable } from 'node:stream';
 
-const upstream = { body: Buffer.alloc(0), failMidStream: false };
+const upstream = { body: Buffer.alloc(0), failMidStream: false, endless: false, chunksSent: 0, destroyed: false };
 
 // Stands in for openrouter.ai: records the forwarded body, then streams a reply, optionally
-// failing after the first chunk the way a reset connection does.
+// failing after the first chunk the way a reset connection does, or never ending until destroyed.
 vi.mock('https', () => ({
   default: {
     request: (_options: unknown, onResponse: (res: unknown) => void) => {
       const chunks: Buffer[] = [];
       const req = new Writable({
+        autoDestroy: false,
+        destroy(err, cb) {
+          upstream.destroyed = true;
+          cb(err);
+        },
         write(chunk: Buffer, _enc, cb) {
           chunks.push(chunk);
           cb();
@@ -23,7 +28,13 @@ vi.mock('https', () => ({
           setTimeout(() => {
             onResponse(res);
             res.write('data: {"partial":1}\n\n');
-            if (upstream.failMidStream) setTimeout(() => req.emit('error', new Error('ECONNRESET')), 20);
+            if (upstream.endless) {
+              const timer = setInterval(() => {
+                if (upstream.destroyed) return clearInterval(timer);
+                upstream.chunksSent++;
+                res.write('data: {"more":1}\n\n');
+              }, 10);
+            } else if (upstream.failMidStream) setTimeout(() => req.emit('error', new Error('ECONNRESET')), 20);
             else res.end('data: [DONE]\n\n');
           }, 10);
           cb();
@@ -92,5 +103,26 @@ describe('provider proxy streaming', () => {
 
     expect(res.text).toContain('"partial":1');
     expect(res.aborted).toBe(true);
+  });
+
+  it('cancels the upstream request when the client disconnects mid-stream', async () => {
+    Object.assign(upstream, { failMidStream: false, endless: true, chunksSent: 0, destroyed: false });
+
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request(
+        { port, path: '/api/providers/openrouter/api/v1/chat/completions', method: 'POST', headers: { 'content-type': 'application/json' } },
+        (res) => res.once('data', () => (req.destroy(), resolve())),
+      );
+      req.on('error', () => {});
+      req.end('{"model":"m","stream":true}');
+      setTimeout(() => reject(new Error('no reply from the proxy')), 2000);
+    });
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(upstream.destroyed).toBe(true);
+    const sentAfterDisconnect = upstream.chunksSent;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(upstream.chunksSent).toBe(sentAfterDisconnect);
+    upstream.endless = false;
   });
 });
