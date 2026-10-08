@@ -1,4 +1,7 @@
-import { assert, describe, expect, it, vi, beforeEach } from "vitest";
+import { assert, describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 vi.mock("child_process", () => ({
   spawn: vi.fn(),
@@ -6,11 +9,56 @@ vi.mock("child_process", () => ({
 }));
 
 describe("Docker workspace mount verification", () => {
+  // The mount check writes a marker file here on the host.
+  let hostWorkspace: string;
+
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();
+    hostWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "mount-verification-"));
     process.env.CONTAINER_NAME = "test-container";
-    process.env.WORKSPACE_HOST_LOCATION = "/tmp/applet_workspace";
+    process.env.WORKSPACE_HOST_LOCATION = hostWorkspace;
+  });
+
+  afterEach(() => {
+    fs.rmSync(hostWorkspace, { recursive: true, force: true });
+  });
+
+  it("rejects a directory that exists in the container but is not the host's directory", async () => {
+    const cp = await import("child_process");
+    vi.mocked(cp.spawnSync).mockReturnValue({ status: 3, stderr: "", error: undefined } as any);
+
+    const { runDockerProcess } = await import("../src/workspace/dockerRunner.js");
+
+    await expect(runDockerProcess("echo hi")).rejects.toThrow(/exists inside container .* but is not the host's directory/s);
+  });
+
+  it("checks for a marker it wrote on the host, and removes the marker afterwards", async () => {
+    const cp = await import("child_process");
+    let markerExistedDuringCheck = false;
+    vi.mocked(cp.spawnSync).mockImplementation(((_cmd: string, args: string[]) => {
+      markerExistedDuringCheck = fs.existsSync(args[args.length - 1]!);
+      return { status: 1, stderr: "", error: undefined };
+    }) as any);
+
+    const { runDockerProcess } = await import("../src/workspace/dockerRunner.js");
+    await expect(runDockerProcess("echo hi")).rejects.toThrow(/does not exist inside container/);
+
+    const args = vi.mocked(cp.spawnSync).mock.calls[0]![1] as string[];
+    expect(args.at(-2)).toBe(hostWorkspace);
+    expect(path.dirname(args.at(-1)!)).toBe(hostWorkspace);
+    expect(markerExistedDuringCheck).toBe(true);
+    expect(fs.readdirSync(hostWorkspace)).toEqual([]);
+  });
+
+  it("rejects a WORKSPACE_HOST_LOCATION that doesn't exist on the host", async () => {
+    process.env.WORKSPACE_HOST_LOCATION = path.join(hostWorkspace, "missing");
+    const cp = await import("child_process");
+
+    const { runDockerProcess } = await import("../src/workspace/dockerRunner.js");
+
+    await expect(runDockerProcess("echo hi")).rejects.toThrow(/Could not write to WORKSPACE_HOST_LOCATION .* on the host/s);
+    assert.strictEqual(vi.mocked(cp.spawnSync).mock.calls.length, 0);
   });
 
   it("passes a bounded timeout to spawnSync so a wedged docker daemon can't hang the event loop", async () => {
