@@ -5,8 +5,9 @@ export function isProviderType(p: unknown): p is ProviderType {
   return typeof p === "string" && (PROVIDERS as readonly string[]).includes(p);
 }
 
-export interface ModelProviderConfig {
+// M narrows the model names a caller may use; the default accepts any string.
+export interface ModelProviderConfig<M extends string = string> {
   readonly provider: ProviderType;
-  readonly model: string;
+  readonly model: M;
   readonly tokenRatio?: number;
 }

@@ -16,74 +16,43 @@ export interface ExecutionConfig {
   provider?: ProviderConfig;
 }
 
-export interface ProviderRegistryConfig {
-  tierModels: readonly string[];
-  roleModels: readonly ModelProviderConfig[];
-  allConfigs: readonly ModelProviderConfig[];
+export interface ProviderRegistryConfig<M extends string = string> {
+  tierModels: readonly M[];
+  roleModels: readonly ModelProviderConfig<M>[];
+  allConfigs: readonly ModelProviderConfig<M>[];
 }
 
-const EMPTY_KNOWN_MODELS: ProviderRegistryConfig = { tierModels: [], roleModels: [], allConfigs: [] };
+const EMPTY_KNOWN_MODELS: ProviderRegistryConfig<never> = { tierModels: [], roleModels: [], allConfigs: [] };
 
-export class ProviderRegistry {
+// Model names are checked by the type parameter, not at runtime: a name is sent to its provider
+// as given, and the provider rejects one it doesn't know. M is only narrowed when the caller
+// passes it (NoInfer), so a registry built from literal names still takes a model held in a string.
+export class ProviderRegistry<M extends string = string> {
   private apiKey: string | undefined;
-  private readonly known: ProviderRegistryConfig;
+  private readonly known: ProviderRegistryConfig<M>;
 
-  constructor(apiKey: string | undefined, knownModels?: ProviderRegistryConfig) {
+  constructor(apiKey: string | undefined, knownModels?: ProviderRegistryConfig<NoInfer<M>>) {
     this.apiKey = apiKey;
     this.known = knownModels ?? EMPTY_KNOWN_MODELS;
   }
 
-  public getMappedModel(modelName?: string): string {
-    const tierModels = this.known.tierModels;
+  public getMappedModel(modelName?: M): string {
     if (!modelName) {
-      const fallback = tierModels[0];
+      const fallback = this.known.tierModels[0];
       if (!fallback) {
         throw new Error('ProviderRegistry: no model was given and no tierModels are configured to fall back on.');
       }
       return fallback;
     }
-    const cleaned = modelName.replace('models/', '').trim();
-    if (cleaned.includes('/')) {
-      return cleaned;
-    }
-
-    const exact = tierModels.find(m => m === cleaned);
-    if (exact) return exact;
-
-    const partialCandidates = tierModels.filter(m => m.includes(cleaned) || cleaned.includes(m));
-    if (partialCandidates.length > 0) {
-      partialCandidates.sort((a, b) => b.length - a.length);
-      return partialCandidates[0]!;
-    }
-
-    for (const role of this.known.roleModels) {
-      if (role.model === cleaned || role.model.includes(cleaned)) {
-        return role.model;
-      }
-    }
-
-    // Never substitute a different model: one the registry doesn't know goes to the provider as asked.
-    return cleaned;
+    return modelName.replace('models/', '').trim();
   }
 
-  public getProviderType(input: string | ModelProviderConfig): ProviderType {
+  public getProviderType(input: M | ModelProviderConfig<M>): ProviderType {
     if (typeof input === 'object' && input !== null) {
       return input.provider;
     }
-    const model = this.getMappedModel(input as string);
-    const allConfigs = this.known.allConfigs;
-
-    let matchedConfig = allConfigs.find(t => t.model === model);
-
-    if (!matchedConfig) {
-      const candidates = allConfigs.filter(t => model.includes(t.model) || t.model.includes(model));
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => b.model.length - a.model.length);
-        matchedConfig = candidates[0];
-      }
-    }
-
-    return matchedConfig ? matchedConfig.provider : 'openrouter';
+    const model = this.getMappedModel(input);
+    return this.known.allConfigs.find(t => t.model === model)?.provider ?? 'openrouter';
   }
 
   public getProviderConfig(provider: ProviderType, modelName: string): ProviderConfig | undefined {
@@ -112,31 +81,11 @@ export class ProviderRegistry {
   }
 
   public getExecutionConfig(
-    input: string | ModelProviderConfig,
+    input: M | ModelProviderConfig<M>,
     options?: { openRouterSessionId?: string },
   ): ExecutionConfig {
-    let providerType: ProviderType;
-    let model: string;
-
-    if (typeof input === 'object' && input !== null) {
-      providerType = input.provider;
-      model = this.getMappedModel(input.model);
-    } else {
-      model = this.getMappedModel(input as string);
-      const allConfigs = this.known.allConfigs;
-
-      let matchedConfig = allConfigs.find(t => t.model === model);
-
-      if (!matchedConfig) {
-        const candidates = allConfigs.filter(t => model.includes(t.model) || t.model.includes(model));
-        if (candidates.length > 0) {
-          candidates.sort((a, b) => b.model.length - a.model.length);
-          matchedConfig = candidates[0];
-        }
-      }
-
-      providerType = matchedConfig ? matchedConfig.provider : 'openrouter';
-    }
+    const model = this.getMappedModel(typeof input === 'object' && input !== null ? input.model : input);
+    const providerType = this.getProviderType(input);
 
     const provider = this.getProviderConfig(providerType, model);
     if (provider && providerType === 'openrouter' && options?.openRouterSessionId) {

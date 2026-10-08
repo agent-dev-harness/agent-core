@@ -8,7 +8,7 @@ Copilot SDK. It has four parts:
 | **Sessions** | `SessionWrapper` is the only way to create or resume a session. The tool list is fixed when the session is created, and tools are switched on and off through permissions. That keeps the prompt cache valid across resumes. The SDK is only imported in `boundary.ts`. |
 | **Forced tool turns** | `runForcedToolTurnUntilTimeout` makes the model answer by calling a named tool. It nudges and retries if the model doesn't, or if its call fails. A timeout only frees the caller: the turn keeps running. |
 | **Workspace** | The Docker runner, the `run_terminal_docker` tool and its `read`/`write`/`stop`/`list_terminal_docker` companions (working directory, background commands, output truncation), killing the whole process group on abort, and `GitSandbox`. |
-| **Providers** | `ProviderRegistry` plus an HTTP proxy. Bring-your-own-key models go through OpenRouter; a model configured as `copilot-native` uses Copilot's own models with no provider config. A model the registry has no config for routes to OpenRouter, and with no model and no `tierModels` it throws. |
+| **Providers** | `ProviderRegistry` plus an HTTP proxy. Bring-your-own-key models go through OpenRouter; a model configured as `copilot-native` uses Copilot's own models with no provider config. A model name is sent as given, and one the registry has no config for routes to OpenRouter; with no model and no `tierModels` it throws. To check model names at compile time, give the registry a model type: `new ProviderRegistry<'openai/gpt-5' \| 'gpt-4o'>(key, config)`. |
 
 ## Goals
 
