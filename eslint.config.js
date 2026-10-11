@@ -57,7 +57,7 @@ export default [
         },
     },
     {
-        files: ["src/copilotSdk/boundary.ts"],
+        files: ["src/**/*.ts"],
         plugins: {
             "@typescript-eslint": tsPlugin,
         },
@@ -65,6 +65,25 @@ export default [
             // eslint-disable escape hatches.
             "@typescript-eslint/no-explicit-any": "error",
             "@typescript-eslint/ban-ts-comment": "error",
+        },
+    },
+    {
+        // An unawaited promise can leave work running past the call that started it, or reject
+        // with no handler; README goal 2 is that nothing hangs.
+        files: ["src/**/*.ts"],
+        ignores: ["**/*.test.ts"],
+        languageOptions: {
+            parserOptions: {
+                project: "./tsconfig.json",
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        plugins: {
+            "@typescript-eslint": tsPlugin,
+        },
+        rules: {
+            "@typescript-eslint/no-floating-promises": "error",
+            "@typescript-eslint/no-misused-promises": "error",
         },
     },
 ];

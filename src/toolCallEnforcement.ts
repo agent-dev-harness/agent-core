@@ -28,12 +28,14 @@ export interface ForcedToolTurnUntilTimeoutOptions<T> {
 }
 
 function eventMatchesTargetTool(ev: Record<string, unknown>, targetTools: readonly string[]): boolean {
+  const data = ev.data as { toolName?: unknown; toolCallId?: unknown } | undefined;
+  const toolName = data?.toolName as string;
   return (
-    (ev.type === 'tool.user_requested' && targetTools.includes((ev.data as any)?.toolName)) ||
-    (ev.type === 'tool.execution_start' && targetTools.includes((ev.data as any)?.toolName)) ||
-    (ev.type === 'external_tool.requested' && targetTools.includes((ev.data as any)?.toolName)) ||
-    (ev.type === 'tool.execution_complete' && (ev.data as any)?.toolCallId && targetTools.some(t => (ev.data as any).toolCallId === `call-${t}`)) ||
-    (ev.type === 'tool.execution_complete' && targetTools.includes((ev.data as any)?.toolName))
+    (ev.type === 'tool.user_requested' && targetTools.includes(toolName)) ||
+    (ev.type === 'tool.execution_start' && targetTools.includes(toolName)) ||
+    (ev.type === 'external_tool.requested' && targetTools.includes(toolName)) ||
+    (ev.type === 'tool.execution_complete' && !!data?.toolCallId && targetTools.some(t => data.toolCallId === `call-${t}`)) ||
+    (ev.type === 'tool.execution_complete' && targetTools.includes(toolName))
   );
 }
 

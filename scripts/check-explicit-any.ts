@@ -52,7 +52,7 @@ function checkFileForViolations(filePath: string): Violation[] {
         file: filePath,
         line,
         lineContent: fileLines[line - 1]?.trim() || '',
-        reason: 'Explicit "any" type usage is forbidden in orchestrator/SDK paths.'
+        reason: 'Explicit "any" type usage is forbidden in src/.'
       });
     }
     ts.forEachChild(node, visitAny);
@@ -79,10 +79,10 @@ function walkDir(dir: string): string[] {
 }
 
 function main() {
-  console.log('=== Checking for explicit "any", @ts-ignore, or @ts-expect-error in src/copilotSdk ===');
+  console.log('=== Checking for explicit "any", @ts-ignore, or @ts-expect-error in src ===');
 
   const targetDirs = [
-    path.join(process.cwd(), 'src', 'copilotSdk')
+    path.join(process.cwd(), 'src')
   ];
 
   const missingDirs = targetDirs.filter((dir) => !fs.existsSync(dir));
@@ -120,7 +120,7 @@ function main() {
   }
 
   if (violations.length > 0) {
-    console.error('\n❌ ERROR: Type discipline violations found in src/copilotSdk paths:\n');
+    console.error('\n❌ ERROR: Type discipline violations found in src:\n');
     for (const violation of violations) {
       const relPath = path.relative(process.cwd(), violation.file);
       console.error(`  File: ${relPath}`);
