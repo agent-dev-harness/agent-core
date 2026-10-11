@@ -26,11 +26,7 @@ export default [
         },
     },
     {
-        files: [
-            "src/copilotSdk/boundary.ts",
-            "test/sessionWrapper.integration.test.ts",
-            "test/scripts/capture-system-message-baseline.ts",
-        ],
+        files: ["src/copilotSdk/boundary.ts"],
         rules: {
             "no-restricted-imports": "off",
         },
