@@ -10,6 +10,8 @@ echo "=== lint: tsc, ESLint, check-explicit-any, boundary guard ==="
 npm run lint
 echo "=== build ==="
 npm run build
+echo "=== consumer check: pack, install, import, require, nodenext tsc ==="
+npm run check:consumer
 echo "=== test ==="
 npm test
 echo "=== verify:docker (needs a running Docker daemon) ==="

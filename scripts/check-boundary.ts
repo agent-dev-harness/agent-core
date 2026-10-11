@@ -1,5 +1,7 @@
 // Fails if anything under src/, test/ or scripts/ imports from outside the package,
 // including dynamic import(), require() and vi.mock paths that ESLint can't see.
+// Also fails if a module with one allowed route (ROUTED_MODULES) is reached from
+// anywhere else, or if src/types.ts, the browser-safe entrypoint, exports a value.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +29,31 @@ interface KnownViolation {
 
 const KNOWN_VIOLATIONS: readonly KnownViolation[] = [];
 
+interface RoutedModule {
+    specs: readonly string[];
+    // Files under scope may only reach specs from allowedFiles.
+    scope: string;
+    allowedFiles: readonly string[];
+    why: string;
+}
+
+const ROUTED_MODULES: readonly RoutedModule[] = [
+    {
+        specs: ['@github/copilot-sdk'],
+        scope: '',
+        allowedFiles: ['src/copilotSdk/boundary.ts'],
+        why: 'Import SDK types and CopilotClient from src/copilotSdk/boundary.ts, the single SDK seam.',
+    },
+    {
+        specs: ['child_process', 'node:child_process'],
+        scope: 'src/',
+        allowedFiles: ['src/workspace/dockerRunner.ts', 'src/workspace/processGroup.ts'],
+        why: 'Commands run in the Docker container; spawn them through the Docker runner in src/workspace/.',
+    },
+];
+
+const TYPE_ONLY_ENTRYPOINT = 'src/types.ts';
+
 type ViolationKind =
     | 'static-import'
     | 'export-from'
@@ -42,6 +69,43 @@ interface FoundImport {
     line: number;
     spec: string;
     kind: ViolationKind;
+}
+
+function matchesSpec(spec: string, routed: string): boolean {
+    return spec === routed || spec.startsWith(`${routed}/`);
+}
+
+function findRouteViolations(found: readonly FoundImport[]): { imp: FoundImport; why: string }[] {
+    const violations: { imp: FoundImport; why: string }[] = [];
+    for (const imp of found) {
+        for (const routed of ROUTED_MODULES) {
+            if (
+                imp.file.startsWith(routed.scope) &&
+                routed.specs.some((spec) => matchesSpec(imp.spec, spec)) &&
+                !routed.allowedFiles.includes(imp.file)
+            ) {
+                violations.push({ imp, why: routed.why });
+            }
+        }
+    }
+    return violations;
+}
+
+function findValueExports(absFile: string): number[] {
+    const content = fs.readFileSync(absFile, 'utf8');
+    const sourceFile = ts.createSourceFile(absFile, content, ts.ScriptTarget.Latest, true);
+    const lines: number[] = [];
+    for (const statement of sourceFile.statements) {
+        const typeOnly =
+            ts.isInterfaceDeclaration(statement) ||
+            ts.isTypeAliasDeclaration(statement) ||
+            (ts.isExportDeclaration(statement) && statement.isTypeOnly) ||
+            (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true);
+        if (!typeOnly) {
+            lines.push(getLine(sourceFile, statement));
+        }
+    }
+    return lines;
 }
 
 function toRepoRel(absPath: string): string {
@@ -236,11 +300,33 @@ function main(): void {
         console.error('');
     }
 
+    const routeViolations = findRouteViolations(found);
+    if (routeViolations.length > 0) {
+        failed = true;
+        console.error('\n❌ Module reached outside its one allowed route:');
+        for (const { imp, why } of routeViolations) {
+            console.error(`  ${imp.file}:${imp.line}  "${imp.spec}"  (${imp.kind})\n    ${why}`);
+        }
+        console.error('');
+    }
+
+    const valueExportLines = findValueExports(path.join(REPO_ROOT, TYPE_ONLY_ENTRYPOINT));
+    if (valueExportLines.length > 0) {
+        failed = true;
+        console.error(`\n❌ ${TYPE_ONLY_ENTRYPOINT} must hold only type-only imports, exports and declarations, ` +
+            'so the ./types entrypoint stays safe for browser code:');
+        for (const line of valueExportLines) {
+            console.error(`  ${TYPE_ONLY_ENTRYPOINT}:${line}`);
+        }
+        console.error('');
+    }
+
     if (failed) {
         process.exit(1);
     }
 
-    console.log(`\n✅ Boundary clean: ${boundaryViolations.length} import(s) outside the tree, all covered by KNOWN_VIOLATIONS (${KNOWN_VIOLATIONS.length} entries, ${matchedKeys.size} active).`);
+    console.log(`\n✅ Boundary clean: ${boundaryViolations.length} import(s) outside the tree, all covered by KNOWN_VIOLATIONS (${KNOWN_VIOLATIONS.length} entries, ${matchedKeys.size} active); ` +
+        `${ROUTED_MODULES.length} routed module(s) reached only through their route; ${TYPE_ONLY_ENTRYPOINT} type-only.`);
     process.exit(0);
 }
 
