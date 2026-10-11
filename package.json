@@ -35,7 +35,8 @@
         "typecheck": "tsc --noEmit -p tsconfig.json",
         "lint": "tsc --noEmit -p tsconfig.json && eslint . && tsx scripts/check-explicit-any.ts && tsx scripts/check-boundary.ts",
         "test": "vitest run",
-        "verify:docker": "tsx test/scripts/verify-docker-runner.ts"
+        "verify:docker": "tsx test/scripts/verify-docker-runner.ts",
+        "check:consumer": "tsx scripts/check-consumer.ts"
     },
     "dependencies": {
         "@github/copilot-sdk": "1.0.13"

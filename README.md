@@ -149,6 +149,7 @@ npm install        # also builds dist/ via the prepare script
 npm run lint       # tsc, ESLint, check-explicit-any, boundary guard
 npm test           # vitest, one file at a time
 npm run build      # dist/: ESM bundles plus .d.ts
+npm run check:consumer  # packs and installs the package, then imports and type-checks it as a consumer
 npm run verify:docker  # Docker runner against a real, throwaway container
 ```
 
