@@ -285,7 +285,7 @@ export function startDockerProcess(command: string, opts: StartOptions = {}): Do
       resolve(code);
     };
 
-    child.on("error", (err: any) => {
+    child.on("error", (err) => {
       stderr.write(`Failed to spawn docker process: ${err.message}`);
       settle(127);
     });
